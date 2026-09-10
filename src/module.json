@@ -1,0 +1,103 @@
+{
+    "id": "loopbox",
+    "name": "LoopBox",
+    "version": "0.3.1",
+    "api_version": 2,
+    "abbrev": "LOOP",
+    "description": "16-track asynchronous stereo tape looper. 3 overdub modes (Replace/Multiply/Disintegration), global Clock with SR degradation, per-voice Studer 962 EQ, DJ filter, tape saturation, wow/flutter, beat-repeat/glitch, shared tape delay and plate reverb. 45s per voice, pad double-press overdub.",
+    "author": "fillioning",
+    "component_type": "sound_generator",
+    "dsp": "dsp.so",
+    "capabilities": {
+        "audio_out": true,
+        "midi_in": true,
+        "audio_in": true,
+        "chainable": true,
+        "component_type": "sound_generator",
+        "chain_params": [
+            {"key": "globalSat", "name": "Sat", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "masterComp", "name": "Comp", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "masterLoCut", "name": "LoCut", "type": "int", "min": 20, "max": 500, "default": 20, "step": 1},
+            {"key": "masterHiCut", "name": "HiCut", "type": "int", "min": 1000, "max": 20000, "default": 20000, "step": 200},
+            {"key": "clock", "name": "Clock", "type": "float", "min": 0, "max": 1, "default": 0.5, "step": 0.01},
+            {"key": "stability", "name": "Stabil", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "globalWowFlut", "name": "W/Flut", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "inputMonitor", "name": "InMon", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+
+            {"key": "delayRate", "name": "DlyRt", "type": "float", "min": 0.01, "max": 1, "default": 0.3, "step": 0.01},
+            {"key": "delayFeedback", "name": "DlyFb", "type": "float", "min": 0, "max": 0.95, "default": 0.35, "step": 0.01},
+            {"key": "delayTone", "name": "DlyTn", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "delayMix", "name": "DlyMx", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "rvbTime", "name": "RvbTm", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "rvbSize", "name": "RvbSz", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "rvbDamp", "name": "RvbDp", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "rvbMix", "name": "RvbMx", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+
+            {"key": "preamp", "name": "Preamp", "type": "enum", "options": ["Clean","Cass1","Cass2","VHS1","VHS2","Reel15","Reel7","Reel3","4trk","Porta","Dub","Warp"], "default": 0},
+            {"key": "overdubMode", "name": "OdMode", "type": "enum", "options": ["Replace","Multiply","Disint"], "default": 0},
+            {"key": "inputGain", "name": "InGain", "type": "float", "min": 0, "max": 2, "default": 1, "step": 0.01},
+            {"key": "clearSel", "name": "ClrSel", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "clearAll", "name": "ClrAll", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "selTrack", "name": "Track", "type": "int", "min": 1, "max": 16, "default": 1, "step": 1},
+
+            {"key": "v_start", "name": "Start", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_end", "name": "End", "type": "float", "min": 0, "max": 1, "default": 1, "step": 0.01},
+            {"key": "v_reverse", "name": "Rev", "type": "enum", "options": ["Normal","Reverse"], "default": 0},
+            {"key": "v_sat", "name": "Sat", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_wowflut", "name": "W/Flut", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_send", "name": "Send", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_glitch", "name": "Stutter", "type": "float", "min": 0, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_tilt", "name": "Tilt", "type": "float", "min": -1, "max": 1, "default": 0, "step": 0.01},
+
+            {"key": "v_eqBass", "name": "Bass", "type": "float", "min": -1, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_eqPresFrq", "name": "MidF", "type": "float", "min": 0, "max": 1, "default": 0.5, "step": 0.01},
+            {"key": "v_eqPresAmt", "name": "MidG", "type": "float", "min": -1, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_eqTreble", "name": "Treble", "type": "float", "min": -1, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_pitch", "name": "Pitch", "type": "float", "min": -2, "max": 2, "default": 0, "step": 0.01},
+            {"key": "v_filter", "name": "Filter", "type": "float", "min": 0, "max": 1, "default": 0.5, "step": 0.01},
+            {"key": "v_pan", "name": "Pan", "type": "float", "min": -1, "max": 1, "default": 0, "step": 0.01},
+            {"key": "v_volume", "name": "Vol", "type": "float", "min": 0, "max": 1, "default": 0.8, "step": 0.01},
+            {"key": "v_decay", "name": "Decay", "type": "float", "min": 0, "max": 1, "default": 1, "step": 0.01},
+            {"key": "v_smpDir", "name": "SmpDir", "type": "enum", "options": ["0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"], "default": 0},
+            {"key": "v_smpFile", "name": "Sample", "type": "enum", "options": ["-1","0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60","61","62","63"], "default": 0}
+        ],
+        "ui_hierarchy": {
+            "modes": null,
+            "levels": {
+                "root": {
+                    "name": "LoopBox",
+                    "knobs": ["globalSat","masterComp","masterLoCut","masterHiCut","clock","stability","globalWowFlut","inputMonitor"],
+                    "params": [
+                        {"level": "MAIN", "label": "Main"},
+                        {"level": "FX", "label": "FX"},
+                        {"level": "CONTROL", "label": "Control"},
+                        {"level": "LOOP", "label": "Loop"}
+                    ]
+                },
+                "MAIN": {
+                    "label": "Main",
+                    "knobs": ["globalSat","masterComp","masterLoCut","masterHiCut","clock","stability","globalWowFlut","inputMonitor"],
+                    "params": ["globalSat","masterComp","masterLoCut","masterHiCut","clock","stability","globalWowFlut","inputMonitor"]
+                },
+                "FX": {
+                    "label": "FX",
+                    "knobs": ["delayRate","delayFeedback","delayTone","delayMix","rvbTime","rvbSize","rvbDamp","rvbMix"],
+                    "params": ["delayRate","delayFeedback","delayTone","delayMix","rvbTime","rvbSize","rvbDamp","rvbMix"]
+                },
+                "CONTROL": {
+                    "label": "Control",
+                    "knobs": ["preamp","overdubMode","inputGain","clearSel","clearAll","selTrack","selTrack","selTrack"],
+                    "params": ["preamp","overdubMode","inputGain","clearSel","clearAll","selTrack"]
+                },
+                "LOOP": {
+                    "label": "Loop",
+                    "knobs": ["v_start","v_end","v_reverse","v_sat","v_wowflut","v_send","v_glitch","v_tilt"],
+                    "params": ["v_start","v_end","v_reverse","v_sat","v_wowflut","v_send","v_glitch","v_tilt",
+                               "v_eqBass","v_eqPresFrq","v_eqPresAmt","v_eqTreble",
+                               "v_pitch","v_filter","v_pan","v_volume","v_decay",
+                               "v_smpDir","v_smpFile"]
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "loopbox",
+  "name": "LoopBox",
+  "abbrev": "LBX",
+  "version": "0.4.0",
+  "author": "Filliformes",
+  "dsp": "dsp.so",
+  "ui": "ui.js",
+  "api_version": 2,
+  "component_type": "overtake",
+  "description": "16-track live tape looper. Left pads record/play/overdub; knobs shape the selected loop.",
+  "capabilities": {
+    "audio_in": true,
+    "suspend_keeps_js": true,
+    "button_passthrough": [ 85 ]
+  }
+}

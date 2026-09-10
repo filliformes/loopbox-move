@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify version consistency
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          JSON_VERSION=$(jq -r '.version' src/module.json)
+          if [ "$TAG_VERSION" != "$JSON_VERSION" ]; then
+            echo "ERROR: Tag version ($TAG_VERSION) does not match module.json version ($JSON_VERSION)"
+            exit 1
+          fi
+
+      - name: Build (Docker cross-compile ARM64)
+        run: ./scripts/build.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/loopbox-module.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release.json
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          REPO="${{ github.repository }}"
+          URL="https://github.com/$REPO/releases/download/v$VERSION/loopbox-module.tar.gz"
+          echo "{\"version\": \"$VERSION\", \"download_url\": \"$URL\"}" > release.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add release.json
+          git commit -m "chore: update release.json for v$VERSION [skip ci]"
+          git push origin main
