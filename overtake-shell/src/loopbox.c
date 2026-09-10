@@ -545,9 +545,9 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
         while(v->playPhase>=dEnd)v->playPhase-=(double)effLen;while(v->playPhase<dStart)v->playPhase+=(double)effLen;
         v->playHead=(int)v->playPhase; }
     /* Amp envelope: attack fades in on trigger/unmute, release fades out on mute/pause/stop.
-     * Times 3ms (param 0, click-free floor) .. 2s (param 1); coeffs cached, recomputed on change. */
-    if(v->ampAtk!=v->ampAtkCache){ double T=0.003*pow(666.667,(double)v->ampAtk); double k=1.0/(T*SR); if(k>1.0)k=1.0; v->ampAtkK=(float)k; v->ampAtkCache=v->ampAtk; }
-    if(v->ampRel!=v->ampRelCache){ double T=0.003*pow(666.667,(double)v->ampRel); double k=1.0/(T*SR); if(k>1.0)k=1.0; v->ampRelK=(float)k; v->ampRelCache=v->ampRel; }
+     * Attack 3ms..3s, Release 3ms..5s (param 0 = click-free floor); coeffs cached, recomputed on change. */
+    if(v->ampAtk!=v->ampAtkCache){ double T=0.003*pow(1000.0,(double)v->ampAtk);    double k=1.0/(T*SR); if(k>1.0)k=1.0; v->ampAtkK=(float)k; v->ampAtkCache=v->ampAtk; }
+    if(v->ampRel!=v->ampRelCache){ double T=0.003*pow(1666.667,(double)v->ampRel); double k=1.0/(T*SR); if(k>1.0)k=1.0; v->ampRelK=(float)k; v->ampRelCache=v->ampRel; }
     double gate=(playing && !v->muted)?1.0:0.0;
     double ek=(gate>v->playEnv)?(double)v->ampAtkK:(double)v->ampRelK;
     v->playEnv += (gate-v->playEnv)*ek;
