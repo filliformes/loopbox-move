@@ -25,7 +25,7 @@ jobs:
 
       - name: Build (Docker cross-compile ARM64)
         working-directory: overtake-shell
-        run: ./scripts/build.sh
+        run: bash scripts/build.sh
 
       - name: Package
         run: |
