@@ -14,14 +14,22 @@ jobs:
       - name: Verify version consistency
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          JSON_VERSION=$(jq -r '.version' src/module.json)
+          JSON_VERSION=$(jq -r '.version' overtake-shell/module.json)
           if [ "$TAG_VERSION" != "$JSON_VERSION" ]; then
             echo "ERROR: Tag version ($TAG_VERSION) does not match module.json version ($JSON_VERSION)"
             exit 1
           fi
 
       - name: Build (Docker cross-compile ARM64)
+        working-directory: overtake-shell
         run: ./scripts/build.sh
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          # tarball must extract to loopbox/ containing module.json
+          tar -czf dist/loopbox-module.tar.gz -C overtake-shell/dist loopbox
+          tar -tzf dist/loopbox-module.tar.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

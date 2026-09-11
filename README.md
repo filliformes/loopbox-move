@@ -185,8 +185,6 @@ OVERTAKE-SDK.md            reverse-engineered Overtake SDK reference
 design-spec.md             full design rationale
 ```
 
-The top-level `src/` and `scripts/` are the earlier standalone build, superseded by `overtake-shell/`.
-
 ---
 
 ## Credits
