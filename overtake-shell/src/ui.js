@@ -129,10 +129,10 @@ let copyHeld = false, loopHeld = false, cloneSrc = -1;
 const armedArr = new Array(NV).fill(false);
 let blinkOn = false, resumeRepaint = 0;
 let view = 'main', viewUntil = 0;          /* 'main' | 'knobs' | 'wave' */
-const VIEW_TICKS = 85;                     /* ~5s before falling back to main */
+const VIEW_MS = 10000;                     /* 10s of real time before falling back */
 let sampleHeld = false, jogHead = -1;      /* Shift+Sample+jog = arm threshold; P4 touch = head to move */
 let waveStr = '', headsStr = '';
-function showView(v) { view = v; viewUntil = tickCount + VIEW_TICKS; dirty = true; }
+function showView(v) { view = v; viewUntil = now() + VIEW_MS; dirty = true; }
 const LOOP_MULTS = [1.0, 0.5, 0.25, 0.125];
 const loopMultIdx = new Array(NV).fill(0);
 let menu = -1, menuReload = false;
@@ -241,9 +241,13 @@ function clearAllLEDs() {
 function reloadKnobs() {
     const defs = PAGES[page()];
     for (let i = 0; i < 8; i++) {
-        const r = gp(defs[i].k);
-        if (defs[i].e2) knobVals[i] = (r === 'Reverse') ? 1 : 0;
-        else { const f = parseFloat(r); knobVals[i] = isNaN(f) ? defs[i].lo : f; }
+        const d = defs[i];
+        if (!d || d.page !== undefined) { knobVals[i] = 0; continue; }   /* page-jump cell */
+        const r = gp(d.k);
+        if (d.opts) { let ix = d.opts.indexOf(r); if (ix < 0) ix = parseInt(r) || 0;
+            knobVals[i] = Math.max(0, Math.min(d.opts.length - 1, ix)); }
+        else if (d.e2) knobVals[i] = (r === 'Reverse') ? 1 : 0;
+        else { const f = parseFloat(r); knobVals[i] = isNaN(f) ? (d.lo || 0) : f; }
     }
     needReload = false;
 }
@@ -302,8 +306,8 @@ function handleKnobTouch(d1) {
     } else if (punchMode && k >= 4 && punchActive >= 0) {
         const j = k - 4; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchVals[punchActive][j].toFixed(2);
     } else if (menu < 0 && !punchMode) {
-        const d = PAGES[page()][k]; lastKnobLbl = d.lbl;
-        lastKnobVal = d.e2 ? d.e2[knobVals[k] > 0.5 ? 1 : 0] : (d.spd ? Math.pow(2, knobVals[k]).toFixed(2) + 'x' : (d.clk ? (0.25 * Math.pow(16, knobVals[k])).toFixed(2) + 'x' : Number(knobVals[k]).toFixed(2)));
+        const d = PAGES[page()][k]; if (!d) return; lastKnobLbl = d.lbl;
+        lastKnobVal = knobInfo(d, k)[1];
     } else return;
     lastKnob = k; dirty = true;
     if (menu < 0 && page() === 3) jogHead = Math.floor(k / 2);   /* P4: touching Hn binds the jog to it */
@@ -321,67 +325,97 @@ function pollStates() {
 }
 
 /* ---- screen ---- */
-/* Full 8-knob page, Schwung-style: 2 rows x 4 cells, label over value. */
+/* ---- Schwung-style knob page: 8 round knobs, pointer, number + name, value when touched ---- */
+function px(x, y) { if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fill_rect(x, y, 1, 1, 1); }
+function circle(cx, cy, r) {                    /* midpoint circle */
+    let x = r, y = 0, err = 1 - r;
+    while (x >= y) {
+        px(cx + x, cy + y); px(cx + y, cy + x); px(cx - y, cy + x); px(cx - x, cy + y);
+        px(cx - x, cy - y); px(cx - y, cy - x); px(cx + y, cy - x); px(cx + x, cy - y);
+        y++; if (err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x) + 1; }
+    }
+}
+function drawKnob(cx, cy, r, frac) {
+    if (!isFinite(frac)) frac = 0;        /* never feed NaN to draw_line */
+    circle(cx, cy, r);
+    const a = (-135 + clampf(frac, 0, 1) * 270) * Math.PI / 180;   /* 270deg sweep from 12 o'clock */
+    const ex = Math.round(cx + Math.sin(a) * (r - 1));
+    const ey = Math.round(cy - Math.cos(a) * (r - 1));
+    draw_line(cx, cy, ex, ey, 1);
+}
+/* frac 0..1 + display text for knob i on the active page/menu */
+function knobInfo(d, i) {
+    const inMenu = menu >= 0;
+    const raw = inMenu ? menuVals[i] : knobVals[i];
+    if (d.page !== undefined) return [1, '>'];
+    if (d.local)             return [(sessSlot - d.lo) / (d.hi - d.lo), String(sessSlot)];
+    if (d.trig)              return [0, '--'];
+    if (d.opts) {
+        const idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(raw)));
+        return [d.opts.length > 1 ? idx / (d.opts.length - 1) : 0, String(d.opts[idx])];
+    }
+    const f = (raw - d.lo) / ((d.hi - d.lo) || 1);
+    let t;
+    if (d.e2)       t = d.e2[raw > 0.5 ? 1 : 0];
+    else if (d.spd) t = Math.pow(2, raw).toFixed(2) + 'x';
+    else if (d.clk) t = (0.25 * Math.pow(16, raw)).toFixed(2) + 'x';
+    else if (d.int) t = String(Math.round(raw));
+    else            t = Number(raw).toFixed(2);
+    return [f, t];
+}
 function drawKnobView() {
     clear_screen();
-    const defs = (menu >= 0) ? MENU_DEFS[menu] : PAGES[page()];
-    const title = (menu >= 0) ? MENU_NAMES[menu] : ('T' + (sel + 1) + '  P' + (page() + 1));
+    const defs  = (menu >= 0) ? MENU_DEFS[menu] : PAGES[page()];
+    const title = (menu >= 0) ? MENU_NAMES[menu] : ('T' + (sel + 1) + ' P' + (page() + 1));
     print(0, 0, title, 1);
     draw_line(0, 9, SCREEN_W, 9, 1);
     for (let i = 0; i < 8; i++) {
         const d = defs[i]; if (!d) continue;
-        const col = i % 4, row = Math.floor(i / 4);
-        const x = col * 32, y = 13 + row * 26;
-        print(x, y, d.lbl.substring(0, 5), 1);
-        let val;
-        if (d.page !== undefined) val = '>';
-        else if (d.local) val = String(sessSlot);
-        else if (d.trig) val = '--';
-        else if (d.opts) val = String(d.opts[Math.round((menu >= 0 ? menuVals[i] : knobVals[i]))] || '').substring(0, 5);
-        else {
-            const raw = (menu >= 0) ? menuVals[i] : knobVals[i];
-            if (d.e2) val = d.e2[raw > 0.5 ? 1 : 0];
-            else if (d.spd) val = Math.pow(2, raw).toFixed(2) + 'x';
-            else if (d.clk) val = (0.25 * Math.pow(16, raw)).toFixed(2) + 'x';
-            else if (d.int) val = String(Math.round(raw));
-            else val = Number(raw).toFixed(2);
-        }
-        print(x, y + 10, String(val).substring(0, 6), 1);
-        if (i === lastKnob) fill_rect(x, y + 20, 28, 1, 1);
+        const col = i % 4, row = (i < 4) ? 0 : 1;
+        const cx = 16 + col * 32, cy = row ? 46 : 21;
+        const inf = knobInfo(d, i);
+        drawKnob(cx, cy, 7, inf[0]);
+        /* name normally; the touched knob shows its value instead */
+        /* 32px cell = 5 chars at 6px: number + 4-char label, or the value when touched */
+        let txt = (i === lastKnob) ? String(inf[1]) : ((i + 1) + String(d.lbl).substring(0, 4));
+        txt = txt.substring(0, 5);
+        const w = txt.length * 6;
+        const cellL = col * 32, x = cellL + Math.max(0, (32 - w) >> 1);
+        print(x, row ? 55 : 30, txt, 1);
     }
     host_flush_display();
 }
 
-/* Loop waveform with the active playheads riding over it. */
+/* ---- Loop waveform (min/max envelope) with the active playheads over it ---- */
 function drawWaveView() {
     clear_screen();
     print(0, 0, 'T' + (sel + 1) + '  ' + STATE_NAMES[voiceState[sel]] + '  ' + loopLen + 's', 1);
     draw_line(0, 9, SCREEN_W, 9, 1);
-    const midY = 34, halfH = 20;
-    if (waveStr && waveStr.length >= 64) {
-        for (let b = 0; b < 64; b++) {
-            const lv = waveStr.charCodeAt(b) - 48;          /* 0..15 */
-            const h = Math.max(1, Math.round((lv / 15) * halfH));
-            fill_rect(b * 2, midY - h, 2, h * 2, 1);
+    const midY = 34, halfH = 22;
+    if (waveStr && waveStr.length >= 256) {
+        for (let x = 0; x < 128; x++) {
+            const hi = waveStr.charCodeAt(x * 2)     - 48 - 31;   /* -31..31 */
+            const lo = waveStr.charCodeAt(x * 2 + 1) - 48 - 31;
+            let yTop = midY - Math.round((hi / 31) * halfH);
+            let yBot = midY - Math.round((lo / 31) * halfH);
+            if (yBot < yTop) { const t = yTop; yTop = yBot; yBot = t; }
+            fill_rect(x, yTop, 1, Math.max(1, yBot - yTop + 1), 1);
         }
     } else {
         print(0, 30, '(empty loop)', 1);
     }
-    /* playheads: vertical lines, numbered */
-    if (headsStr) {
+    if (headsStr) {                                   /* playheads: dashed verticals + number */
         const parts = headsStr.split(';');
         for (let k = 0; k < parts.length && k < 4; k++) {
             const kv = parts[k].split(',');
-            const mode = parseInt(kv[0]) || 0; if (mode === 0) continue;
-            const pos = parseInt(kv[1]) || 0;
-            const x = Math.min(127, Math.round((pos / 999) * 127));
-            fill_rect(x, 12, 1, 44, 1);
-            print(Math.min(122, x), 57, String(k + 1), 1);
+            if ((parseInt(kv[0]) || 0) === 0) continue;
+            const x = Math.min(127, Math.round(((parseInt(kv[1]) || 0) / 999) * 127));
+            for (let y = 11; y <= 56; y += 2) px(x, y);
+            print(Math.min(122, Math.max(0, x - 2)), 56, String(k + 1), 1);
         }
     }
     host_flush_display();
 }
-
 function drawUI() {
     if (view === 'knobs') { drawKnobView(); return; }
     if (view === 'wave')  { drawWaveView(); return; }
@@ -441,7 +475,7 @@ globalThis.tick = function () {
             if (on !== armedArr[i]) { armedArr[i] = on; setLED(LEFT_NOTES[i], padColor(i), true); }
         }
     }
-    if (view !== 'main' && tickCount >= viewUntil) { view = 'main'; dirty = true; }
+    if (view !== 'main' && now() >= viewUntil) { view = 'main'; dirty = true; }
     if (view === 'wave') {
         if (tickCount % 12 === 0) { const w = gp('wave'); if (w) waveStr = w; }
         const h = gp('heads'); if (h) headsStr = h;
@@ -512,7 +546,7 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         const k = d1 - MoveKnob1;
         if (k >= 0 && k < 8) {
-            if (menu >= 0 && MENU_DEFS[menu]) { menuKnob(k, decodeDelta(d2)); return; }
+            if (menu >= 0 && MENU_DEFS[menu]) { menuKnob(k, decodeDelta(d2)); showView('knobs'); return; }
             if (punchMode) {                       /* knobs 5-8 (above the right pads) control the held effect */
                 if (k >= 4 && punchActive >= 0) {
                     const j = k - 4;
@@ -526,6 +560,12 @@ globalThis.onMidiMessageInternal = function (data) {
             }
             const def = PAGES[page()][k];
             if (def.page !== undefined) { if (decodeDelta(d2) !== 0) setPage(def.page); return; }
+            if (def.opts) {                                  /* enum page knob (playhead modes) */
+                const dd = decodeDelta(d2); const dir = dd > 0 ? 1 : (dd < 0 ? -1 : 0);
+                const ix = Math.max(0, Math.min(def.opts.length - 1, Math.round(knobVals[k]) + dir));
+                knobVals[k] = ix; sp(def.k, def.opts[ix]);
+                lastKnob = k; lastKnobLbl = def.lbl; lastKnobVal = def.opts[ix]; showView('knobs'); return;
+            }
             const step = (def.step !== undefined) ? def.step : (def.hi - def.lo) * 0.02;
             const center = (def.lo + def.hi) / 2;
             let nv = knobVals[k] + decodeDelta(d2) * step;
@@ -534,7 +574,7 @@ globalThis.onMidiMessageInternal = function (data) {
             knobVals[k] = nv;
             if (def.e2) { sp(def.k, nv > 0.5 ? '1' : '0'); lastKnobVal = def.e2[nv > 0.5 ? 1 : 0]; }
             else { sp(def.k, nv.toFixed(4)); lastKnobVal = def.spd ? Math.pow(2, nv).toFixed(2) + 'x' : (def.clk ? (0.25 * Math.pow(16, nv)).toFixed(2) + 'x' : nv.toFixed(2)); }
-            lastKnob = k; lastKnobLbl = def.lbl;
+            lastKnob = k; lastKnobLbl = def.lbl; showView('knobs');
         }
         return;
     }

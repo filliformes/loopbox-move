@@ -1358,7 +1358,9 @@ static void set_param(void *inst, const char *key, const char *val) {
     if(strcmp(key,"jump")==0){ if((float)atof(val)>0.5f){ for(int i=0;i<NUM_VOICES;i++){Voice *v=&s->voice[i];
         if((v->state==VS_PLAYING||v->state==VS_OVERDUBBING)&&v->loopLen>0){ int es=(int)(v->loopStart*(float)v->loopLen); if(es<0)es=0; if(es>v->loopLen-1)es=v->loopLen-1;
             int av=v->loopLen-es; if(av<1)av=1; int el=(int)(v->loopEnd*(float)av); if(el<256)el=256; if(el>av)el=av;
-            double frac=lb_rand(&v->rng)*0.5+0.5; v->playPhase=(double)es+frac*(double)el; } } } return; }
+            double frac=lb_rand(&v->rng)*0.5+0.5;
+            v->scatXfadePhase=v->playPhase; v->scatXfade=64;   /* declick the jump */
+            v->playPhase=(double)es+frac*(double)el; } } } return; }
     if(strcmp(key,"scan")==0){ if((float)atof(val)>0.5f)s->scanTimer=(int)(SR*0.4); return; }
     /* Jog scrub: nudge the selected loop's playhead, declicked by the scatter crossfade. */
     if(strcmp(key,"scrub")==0){ int si=s->selTrack-1; if(si<0||si>=NUM_VOICES)return; Voice *v=&s->voice[si];
@@ -1541,15 +1543,28 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"sessStatus")==0){ static const char *st[]={"","Saving..","Loading..","OK","Empty"};
         int i=atomic_load(&s->sio.status); if(i<0||i>4)i=0; return snprintf(buf,buf_len,"%s",st[i]); }
     if(strcmp(key,"sessSlot")==0)return snprintf(buf,buf_len,"%d",atomic_load(&s->sio.slot));
-    if(strcmp(key,"wave")==0){   /* 64 peak buckets of the selected loop, 16 levels each */
+    if(strcmp(key,"wave")==0){   /* 128 columns x (max,lo) min/max envelope, auto-normalised */
         int si=s->selTrack-1; if(si<0||si>=NUM_VOICES)return -1; Voice *v=&s->voice[si];
-        if(v->loopLen<=0||buf_len<66){ buf[0]='\0'; return 0; }
-        int per=v->loopLen/64; if(per<1)per=1; int step=per/24; if(step<1)step=1;
-        for(int b=0;b<64;b++){ int pk=0,base=b*per;
+        if(v->loopLen<=0||buf_len<258){ buf[0]=0; return 0; }
+        int per=v->loopLen/128; if(per<1)per=1;
+        int step=per/96; if(step<1)step=1;
+        int peak=1;                                  /* scale to the loop own peak, like the Move display */
+        for(int i=0;i<v->loopLen;i+=step*4){
+            int a=v->bufferL[i]; if(a<0)a=-a;
+            int r=v->bufferR[i]; if(r<0)r=-r; if(r>a)a=r;
+            if(a>peak)peak=a; }
+        if(peak<200)peak=200;                        /* near-silence floor: do not amplify noise */
+        for(int b=0;b<128;b++){
+            int base=b*per, mx=-32768, mn=32767;
             for(int j=0;j<per;j+=step){ int idx=base+j; if(idx>=v->loopLen)break;
-                int a=v->bufferL[idx]; if(a<0)a=-a; if(a>pk)pk=a; }
-            int lv=(pk*16)/32768; if(lv>15)lv=15; buf[b]=(char)('0'+lv); }
-        buf[64]='\0'; return 64; }
+                int a=v->bufferL[idx]; if(a>mx)mx=a; if(a<mn)mn=a;
+                int r=v->bufferR[idx]; if(r>mx)mx=r; if(r<mn)mn=r; }
+            if(mx<mn){ mx=0; mn=0; }
+            int hi=(mx*31)/peak; if(hi>31)hi=31; if(hi<-31)hi=-31;
+            int lo=(mn*31)/peak; if(lo>31)lo=31; if(lo<-31)lo=-31;
+            buf[b*2]  =(char)(48+hi+31);
+            buf[b*2+1]=(char)(48+lo+31); }
+        buf[256]=0; return 256; }
     if(strcmp(key,"heads")==0){   /* "m,pos" x4 — pos 0..999 across the loop */
         int si=s->selTrack-1; if(si<0||si>=NUM_VOICES)return -1; Voice *v=&s->voice[si];
         int p=0; double L=(v->loopLen>0)?(double)v->loopLen:1.0;
