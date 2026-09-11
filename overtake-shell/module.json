@@ -2,7 +2,7 @@
   "id": "loopbox",
   "name": "LoopBox",
   "abbrev": "LBX",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Filliformes",
   "dsp": "dsp.so",
   "ui": "ui.js",
@@ -12,6 +12,6 @@
   "capabilities": {
     "audio_in": true,
     "suspend_keeps_js": true,
-    "button_passthrough": [ 85 ]
+    "button_passthrough": [ 85, 52, 118, 58, 60 ]
   }
 }
