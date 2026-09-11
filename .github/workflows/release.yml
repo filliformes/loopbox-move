@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -43,9 +46,17 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           REPO="${{ github.repository }}"
           URL="https://github.com/$REPO/releases/download/v$VERSION/loopbox-module.tar.gz"
-          echo "{\"version\": \"$VERSION\", \"download_url\": \"$URL\"}" > release.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # tag builds are detached HEAD: land on the default branch BEFORE writing
+          BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
+          git fetch origin "$BRANCH"
+          git checkout -f "$BRANCH"
+          echo "{\"version\": \"$VERSION\", \"download_url\": \"$URL\"}" > release.json
           git add release.json
-          git commit -m "chore: update release.json for v$VERSION [skip ci]"
-          git push origin main
+          if git diff --cached --quiet; then
+            echo "release.json already current"
+          else
+            git commit -m "chore: update release.json for v$VERSION [skip ci]"
+            git push origin "$BRANCH"
+          fi
