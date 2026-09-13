@@ -2,7 +2,7 @@
   "id": "loopbox",
   "name": "LoopBox",
   "abbrev": "LBX",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "author": "Filliformes",
   "dsp": "dsp.so",
   "ui": "ui.js",

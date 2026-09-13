@@ -13,7 +13,7 @@ and a MIDI-keyboard polyphony layer.
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
 - **Module:** `loopbox` · **Name:** LoopBox · **Abbrev:** LBX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.5.0 · **License:** GPL-3.0
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.5.2 · **License:** GPL-3.0
 
 ---
 
@@ -51,8 +51,8 @@ Navigate with **Down** (next) and **Up** (previous).
 | Page | Knobs |
 |------|-------|
 | **P1 · Main** | Pitch · Filter · Pan · Volume · Start · End · Reverse · **Send A** |
-| **P2 · Perform** | Clock · **Reso** · Sat · Comp · Wow/Flutter · Scatter · **Seed** · Send B |
-| **P3 · Tone** | Studer **Bass · MidF · MidGain · Treble** · Tilt · **Heads ▸** · Attack · Decay |
+| **P2 · Texture** | Clock · **Reso** · Sat · Comp · Wow/Flutter · Scatter · **Seed** · Send B (Clock and Comp are per-track) |
+| **P3 · Tone** | Studer **Bass · MidF · MidGain · Treble** · Tilt · Attack · Decay · **Heads ▸** |
 | **P4 · Playheads** | H1 mode/speed · H2 · H3 · H4 |
 
 - **Seed** — a Smack-style *seeded slice re-order* (2/4/8/16 slices, some reversed). The knob
@@ -69,10 +69,13 @@ Cascade, Reels, Collage, Reverse, Space, Bloom, Filter, Squash, Cassette, Broken
 Interference, Halo, Plate — each with Amount / Macro / Drift.
 
 ### Punch-in FX (right 16 pads)
-Sixteen momentary glitch effects over a 2-second capture ring — Loops, Stutter, Oct±,
-Haze, Shimmer, Stretch/Freeze, Reverse, Saturate — **up to 4 stacked in series**.
-Hold a pad to apply; **knobs 5–8 edit the held effect's four parameters** live.
-**Shift + pad latches** it on hands-free.
+Sixteen momentary glitch effects over a 2-second capture ring, in four families —
+**Loops** (1/16 · 1/12 · short · long), **Grains** (Haze · Mosaic · Smear · Strum),
+**Pitch** (Oct+ · Oct− · Glide · Shimmer) and **Time** (Stretch · Freeze · Reverse · Chop) —
+**up to 4 stacked in series**. Slice effects auto-pan in sync with their rate.
+Hold a pad to apply; **knobs 5–8 edit the held effect's four parameters** live, and
+**pad pressure** drives a per-effect expression (subdivide, density, glide, freeze, rate…)
+shown in the footer. **Shift + pad latches** it on hands-free.
 
 ### The Tape machine (record path)
 A full input tape stage on the **Capture** button: **Tape model** (13, including a true
@@ -80,7 +83,8 @@ A full input tape stage on the **Capture** button: **Tape model** (13, including
 (approximates repeated dubs). Default is `Clean`.
 
 ### Sessions
-**8 numbered slots**, saved and loaded from the **Sample/Record** button. Settings *and*
+**32 numbered slots**, saved and loaded from the **Sample/Record** button, each named
+`slot_YYYYMMDD_HHMM`; saving over a used slot asks for confirmation. Settings *and*
 recorded audio are stored; all disk work runs on a `SCHED_OTHER` worker thread pinned to
 cores 0–2, never on the audio callback. Sessions live in
 `/data/UserData/schwung/loopbox-sessions/` so reinstalls keep them.

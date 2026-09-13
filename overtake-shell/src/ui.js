@@ -1,12 +1,17 @@
 /*
- * LoopBox — Overtake UI (QuickJS). Drives the loopbox.c engine via string params.
+ * LoopBox - Overtake UI (QuickJS). Drives the loopbox.c engine via string params.
  *
- * Left 16 pads  = loop tracks: tap cycles Empty->Rec->Play<->Pause; double-tap
- *                 (from Play/Pause) = Overdub; LED colored by state.
- * Right 16 pads = reserved (punch-FX, next wave) — shown dim.
- * Step row      = select track. 8 knobs = selected-track params over 2 pages
- *                 (Down arrow = page 2, Up arrow = page 1). Screen shows strip + CPU%.
- * Back = clean exit.
+ * Left 16 pads   = loop tracks: tap cycles Empty->Rec->Play<->Pause; double-tap
+ *                  = Overdub; hold = clear (Undo restores). Mute/Copy/Loop/Shift
+ *                  are held modifiers (mute, clone, length multiple, speed).
+ * Right 16 pads  = punch-in FX (hold = momentary, Shift+pad = latch); knobs 5-8
+ *                  edit the held effect.
+ * Step row       = select track (shows its waveform); same step again = next page.
+ * 8 knobs        = selected track over 4 pages (Up/Down); Track buttons 1-4,
+ *                  Capture and Sample open menus. Jog scrubs / moves a playhead.
+ * Screen         = main overview | knob grid (touch a knob / open a menu) |
+ *                  waveform (step / jog), falling back after 10s.
+ * Widgets are Schwung's own (fonts, frame ctx, geometry, animations).
  */
 
 import {
@@ -20,6 +25,20 @@ import {
 
 import { setLED, setButtonLED, decodeDelta }
     from '/data/UserData/schwung/shared/input_filter.mjs';
+/* Schwung's own render primitives, imported so LoopBox draws the SAME widgets
+ * as every other module. These fonts and frame_ctx have no imports of their
+ * own; render_page_movy.mjs is not imported because it drags in viz*.mjs. */
+import { frameCtx } from '/data/UserData/schwung/shared/param_pages/frame_ctx.mjs';
+import { fontPrint as tzPrint, fontWidth as tzWidth }
+    from '/data/UserData/schwung/shared/param_pages/font_tamzen6x12.mjs';
+import { fontPrint as bigPrint, fontWidth as bigWidth }
+    from '/data/UserData/schwung/shared/param_pages/font_big_num.mjs';
+import { fontPrint4x5, fontWidth4x5, FONT4_MEASURE, FONT4_HEIGHT }
+    from '/data/UserData/schwung/shared/param_pages/font4x5.mjs';
+import { enumSquareLines }
+    from '/data/UserData/schwung/shared/param_pages/font5x3.mjs';
+import { createAnimState, observeLanded, easeOut, lerp }
+    from '/data/UserData/schwung/shared/param_pages/anim_state.mjs';
 
 const SCREEN_W = 128, SCREEN_H = 64;
 const NV = 16;
@@ -58,27 +77,34 @@ function setMsg(m) { statusMsg = m; statusMsgUntil = tickCount + 40; }
 function now() { return (typeof Date !== 'undefined' && Date.now) ? Date.now() : tickCount * 23; }
 
 /* ---- Punch-in FX (right 16 pads) ---- */
-const PUNCH_NAMES = ['Loop16','Loop12','LoopSh','LoopSr','Stut4','Stut3','Retrig','Q6/8',
-                     'Oct+','Oct-','Haze','Shmr','Strch','Freez','Revrse','Sat'];
-const PUNCH_PAD_COLORS = [AzureBlue,AzureBlue,AzureBlue,AzureBlue, BrightRed,BrightRed,BrightRed,BrightRed,
-                          Purple,Purple,NeonGreen,NeonGreen, VividYellow,VividYellow,Purple,BrightRed];
-const PUNCH_DSP_KEYS = ['punchRate','punchPitch','punchTone','punchMix'];  /* knobs 5-8 -> these DSP slots */
+const PUNCH_NAMES = ['Loop16','Loop12','LoopSh','LoopSr', 'Haze','Mosaic','Smear','Strum',
+                     'Oct+','Oct-','Glide','Shmr',      'Strch','Freez','Revrse','Chop'];
+const PUNCH_PAD_COLORS = [AzureBlue,AzureBlue,AzureBlue,AzureBlue, NeonGreen,NeonGreen,NeonGreen,NeonGreen,
+                          Purple,Purple,Purple,Purple,             VividYellow,VividYellow,VividYellow,BrightRed];
 const PUNCH_PARAMS = [ /* per-effect labels for knobs 5,6,7,8 */
   ['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],
-  ['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],
-  ['Fine','Pit','Tone','Mix'],['Fine','Pit','Tone','Mix'],['Size','Pit','Dens','Mix'],['Regn','Pit','Tone','Mix'],
-  ['Strch','Pit','Grn','Mix'],['Frz','Pit','Grn','Mix'],['Len','Pit','Tone','Mix'],['Drive','Char','Tone','Mix']
+  ['Size','Pit','Dens','Mix'],['Grid','Pit','Var','Mix'],['Size','Pit','Dens','Mix'],['Rate','Dir','Tone','Mix'],
+  ['Fine','Pit','Tone','Mix'],['Fine','Pit','Tone','Mix'],['Len','Glide','Tone','Mix'],['Regn','Pit','Tone','Mix'],
+  ['Strch','Pit','Grn','Mix'],['Frz','Pit','Grn','Mix'],['Len','Pit','Tone','Mix'],['Rate','Patrn','Tone','Mix']
 ];
+/* what pad PRESSURE does on each effect (shown while the pad is held) */
+const PUNCH_PRESS = ['subdivide','subdivide','subdivide','subdivide', 'density','grid x2','density','faster+wider',
+                     'mix','mix','glide','regen',                     'freeze','freeze','shorter','rate x2'];
 let punchMode = false, punchActive = -1;
 const heldPunch = [];  /* currently-held punch pads (up to 4, in press order) */
 const punchLatched = new Array(NV).fill(false);  /* Shift+pad = latch on (hands-free) */
+const physHeld = [];   /* punch pads currently pressed — only THESE capture knobs 5-8 */
 const punchVals = [];  /* [16][4] per-effect stored values */
 for (let i = 0; i < 16; i++) punchVals.push([0.5, 0.5, 1.0, 1.0]);
-punchVals[10] = [0.4, 0.5, 0.5, 1.0];   /* Haze:   size, pitch, density */
-punchVals[11] = [0.4, 0.0, 0.4, 1.0];   /* Shimmer: regen, pitch 1x (ratio=1+P1), darker tone */
+punchVals[4]  = [0.4, 0.5, 0.5, 1.0];   /* Haze:   size, pitch, density */
+punchVals[5]  = [0.5, 0.5, 0.4, 1.0];   /* Mosaic: 1/8 grid, some variation */
+punchVals[6]  = [0.5, 0.5, 0.5, 1.0];   /* Smear:  long grains, mid density */
+punchVals[7]  = [0.6, 0.75, 1.0, 1.0];  /* Strum:  brisk, upward, open tone */
+punchVals[10] = [0.5, 0.25, 1.0, 1.0];  /* Glide:  1/4 beat, gliding down */
+punchVals[11] = [0.4, 0.0, 0.4, 1.0];   /* Shimmer: regen, pitch 1x, darker tone */
 punchVals[12] = [0.5, 0.5, 0.3, 1.0];   /* Stretch: mid stretch, small grain */
 punchVals[13] = [1.0, 0.5, 0.3, 1.0];   /* Freeze:  full freeze */
-punchVals[15] = [0.4, 0.0, 0.7, 1.0];   /* Saturate: drive, Tape character, open tone */
+punchVals[15] = [0.5, 0.5, 1.0, 1.0];   /* Chop:   1/4 grid, medium pattern */
 
 /* ---- Track-button menus (MoveRow1..4) ---- */
 const ROW_CCS = [MoveRow1, MoveRow2, MoveRow3, MoveRow4];   /* Track buttons 1..4 */
@@ -118,12 +144,23 @@ const MENU_DEFS = [
       { k:'tapeNoise', lo:0, hi:1, lbl:'Hiss' },      { k:'tapeGen', lo:0, hi:1, lbl:'Gen' },
     ],
     [ /* 5 — Sessions (Rec button): slot select + save/load (worker thread does the disk I/O) */
-      { k:'sessSlot', lo:1, hi:8, lbl:'Slot', int:true, local:true },
+      { k:'sessSlot', lo:1, hi:32, lbl:'Slot', int:true, local:true },
       { k:'sessSave', trig:true, lbl:'Save' },
       { k:'sessLoad', trig:true, lbl:'Load' },
     ],
 ];
 let sessSlot = 1, sessLast = '';
+const NSLOTS = 32;
+let sessNames = new Array(NSLOTS + 1).fill('');   /* 1-based; '' = empty slot */
+let confirmSave = false;                          /* overwrite popup pending */
+function pollSessNames() {
+    const r = gp('sessNames'); if (!r) return;
+    const parts = String(r).split(';');
+    for (let i = 1; i <= NSLOTS; i++) sessNames[i] = parts[i - 1] || '';
+}
+function doSessionSave() {
+    sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); confirmSave = false;
+}
 let armThreshVal = 0.08;
 let copyHeld = false, loopHeld = false, cloneSrc = -1;
 const armedArr = new Array(NV).fill(false);
@@ -139,6 +176,16 @@ let menu = -1, menuReload = false;
 const menuVals = [0,0,0,0,0,0,0,0];
 
 let knobVals = new Array(8).fill(0);
+/* Schwung (movy_knob.mjs): an enum advances one option per ENUM_DELTA_DIV physical
+ * detents, so a fast knob turn does not race through every option. */
+const ENUM_DELTA_DIV = 4;
+const enumAccum = new Array(8).fill(0);
+function enumSteps(k, delta) {
+    enumAccum[k] += delta;
+    const steps = Math.trunc(enumAccum[k] / ENUM_DELTA_DIV);
+    if (steps !== 0) enumAccum[k] -= steps * ENUM_DELTA_DIV;
+    return steps;
+}
 let needReload = true;
 let lastKnob = -1, lastKnobLbl = '', lastKnobVal = '';
 let cpu = '0', loopLen = '0', inPeak = '0';
@@ -150,16 +197,16 @@ const PAGE0 = [   /* Loop page 1 (Up arrow) — knob 8 = Send A */
     { k: 'v_reverse', lo: 0, hi: 1, lbl: 'Rev', e2: ['Nrm', 'Rev'] }, { k: 'v_sendA', lo: 0, hi: 1, lbl: 'SndA' },
 ];
 const PAGE1 = [   /* Loop page 2 (Down arrow) — knobs 6/7 = Scatter/Seed, knob 8 = Send B */
-    { k: 'clock', lo: 0, hi: 1, lbl: 'Clk', clk: true },  { k: 'v_djReso', lo: 0, hi: 1, lbl: 'Reso' },
-    { k: 'v_sat', lo: 0, hi: 1, lbl: 'Sat' },             { k: 'masterComp', lo: 0, hi: 1, lbl: 'Cmp' },
+    { k: 'v_clock', lo: 0, hi: 1, lbl: 'Clk', clk: true },  { k: 'v_djReso', lo: 0, hi: 1, lbl: 'Reso' },
+    { k: 'v_sat', lo: 0, hi: 1, lbl: 'Sat' },             { k: 'v_comp', lo: 0, hi: 1, lbl: 'Cmp' },
     { k: 'v_wowflut', lo: 0, hi: 1, lbl: 'WF' },          { k: 'v_scatter', lo: 0, hi: 1, lbl: 'Scat' },
     { k: 'v_glitch', lo: 0, hi: 1, lbl: 'Seed' },         { k: 'v_sendB', lo: 0, hi: 1, lbl: 'SndB' },
 ];
 const PAGE2 = [   /* Loop page 3 / Tone (Right arrow) — Studer EQ + DJ reso + amp envelope */
     { k: 'v_eqBass', lo: -1, hi: 1, lbl: 'Bass' },    { k: 'v_eqPresFrq', lo: 0, hi: 1, lbl: 'MidF' },
     { k: 'v_eqPresAmt', lo: -1, hi: 1, lbl: 'MidG' }, { k: 'v_eqTreble', lo: -1, hi: 1, lbl: 'Treb' },
-    { k: 'v_tilt', lo: -1, hi: 1, lbl: 'Tilt' },      { k: '_heads', page: 3, lbl: 'Heads' },
-    { k: 'v_atk', lo: 0, hi: 1, lbl: 'Atk' },         { k: 'v_rel', lo: 0, hi: 1, lbl: 'Dec' },
+    { k: 'v_tilt', lo: -1, hi: 1, lbl: 'Tilt' },      { k: 'v_atk', lo: 0, hi: 1, lbl: 'Atk' },
+    { k: 'v_rel', lo: 0, hi: 1, lbl: 'Dec' },         { k: '_heads', page: 3, lbl: 'Heads' },
 ];
 const HEAD_MODES = ['Off', 'Fwd', 'Bwd', 'Ping'];
 const PAGE3 = [   /* Loop page 4 — Playheads: mode + speed per head (touch one, jog moves it) */
@@ -211,7 +258,7 @@ function paintAll(force) {
 /* Open (or toggle off) a menu by index; 0-3 are the track buttons, 4=Tape, 5=Sessions */
 function openMenu(idx) {
     if (menu === idx) menu = -1;
-    else { menu = idx; menuReload = true; setMsg(MENU_NAMES[idx]); showView('knobs'); }
+    else { menu = idx; menuReload = true; setMsg(MENU_NAMES[idx]); showView('knobs'); if (idx === 5) pollSessNames(); }
     paintTrackLEDs(); paintNav(); dirty = true;
 }
 /* Nav buttons: arrows lit (current page's jump-arrow bright), Undo dim, Mute bright while held */
@@ -266,14 +313,24 @@ function reloadMenu() {
 }
 function menuKnob(k, delta) {
     const d = MENU_DEFS[menu][k]; if (!d) return;
-    if (d.local) {                    /* UI-local (session slot) */
-        const dir = delta > 0 ? 1 : (delta < 0 ? -1 : 0);
-        const nv = Math.max(d.lo, Math.min(d.hi, Math.round(menuVals[k]) + dir));
+    if (confirmSave) {                /* overwrite popup: knob 8 = YES, knob 5 = NO */
+        if (delta === 0) return;
+        if (k === 7) { stampButton(k); doSessionSave(); }
+        else if (k === 4) { stampButton(k); confirmSave = false; setMsg('not saved'); }
+        return;
+    }
+    if (d.local) {                    /* UI-local (session slot): one slot per 4 detents */
+        const st = enumSteps(k, delta); if (st === 0) return;
+        const nv = Math.max(d.lo, Math.min(d.hi, Math.round(menuVals[k]) + st));
         menuVals[k] = nv; sessSlot = nv; lastKnob = k; lastKnobLbl = d.lbl; lastKnobVal = String(nv); return;
     }
     if (d.trig) {
         if (delta !== 0) {
-            if (d.k === 'sessSave')      { sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); }
+            stampButton(k);
+            if (d.k === 'sessSave') {
+                if (sessNames[sessSlot]) { confirmSave = true; setMsg('slot ' + sessSlot + ' exists'); }
+                else doSessionSave();
+            }
             else if (d.k === 'sessLoad') { sp('session', 'load:' + sessSlot); setMsg('Loading slot ' + sessSlot); }
             else sp(d.k, '1');
             lastKnob = k; lastKnobLbl = d.lbl; lastKnobVal = 'fire';
@@ -281,8 +338,8 @@ function menuKnob(k, delta) {
         return;
     }
     if (d.opts) {
-        const dir = delta > 0 ? 1 : (delta < 0 ? -1 : 0);
-        let idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(menuVals[k]) + dir));
+        const st = enumSteps(k, delta); if (st === 0) return;
+        let idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(menuVals[k]) + st));
         menuVals[k] = idx; sp(d.k, d.opts[idx]); lastKnobVal = d.opts[idx];
     } else if (d.int) {
         const step = Math.max(1, Math.round((d.hi - d.lo) * 0.02));
@@ -325,63 +382,542 @@ function pollStates() {
 }
 
 /* ---- screen ---- */
-/* ---- Schwung-style knob page: 8 round knobs, pointer, number + name, value when touched ---- */
 function px(x, y) { if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H) fill_rect(x, y, 1, 1, 1); }
-function circle(cx, cy, r) {                    /* midpoint circle */
-    let x = r, y = 0, err = 1 - r;
-    while (x >= y) {
-        px(cx + x, cy + y); px(cx + y, cy + x); px(cx - y, cy + x); px(cx - x, cy + y);
-        px(cx - x, cy - y); px(cx - y, cy - x); px(cx + y, cy - x); px(cx + x, cy - y);
-        y++; if (err < 0) err += 2 * y + 1; else { x--; err += 2 * (y - x) + 1; }
+
+/* ---- Schwung param grid, reproduced exactly (render_page_movy.mjs geometry) ---- */
+const CELL_W = 32, KW = 17, KNOB_R = 8;
+const ROW0_Y = 9, LBL0_Y = 24, ROW1_Y = 33, LBL1_Y = 48;
+const KNOB_START_DEG = 225, KNOB_SWEEP_DEG = 270;
+const ARC_START_DEG = 230, ARC_SWEEP_DEG = 260;
+const POINTER_INNER = 0.0, POINTER_OUTER = 0.68;
+const BTN_RX = 7, BTN_RY = 3, BTN_DEPTH = 6, BTN_TRAVEL = 2;
+const ENUM_W = 28, BOX_H = 15;
+
+/* Parent context over the Overtake primitives; frameCtx clips and translates. */
+const rootCtx = {
+    fillRect(x, y, w, h, c) { fill_rect(x, y, w, h, c ? 1 : 0); },
+    print(x, y, t, c) { print(x, y, String(t), c ? 1 : 0); },
+    textWidth(t) { return tzWidth(String(t)); },
+};
+function screenCtx() { return frameCtx(rootCtx, { x: 0, y: 0, w: SCREEN_W, h: SCREEN_H }); }
+
+/* render_page_movy.mjs drawArcKnob, verbatim. */
+function drawArcKnob(ctx, kx, ky, normVal) {
+    const cx = kx + KNOB_R, cy = ky + KNOB_R, r = KNOB_R;
+    ctx.drawArc(cx, cy, r, ARC_START_DEG, ARC_SWEEP_DEG, 1);
+    const rad = (KNOB_START_DEG + normVal * KNOB_SWEEP_DEG) * Math.PI / 180;
+    const sin = Math.sin(rad), cos = Math.cos(rad);
+    ctx.line(Math.round(cx + r * POINTER_INNER * sin), Math.round(cy - r * POINTER_INNER * cos),
+             Math.round(cx + r * POINTER_OUTER * sin), Math.round(cy - r * POINTER_OUTER * cos), 1);
+}
+
+/* render_page_movy.mjs ellipse helpers + drawButton, verbatim. */
+function ellipseOutline(ctx, cx, cy, rx, ry, color, bottomOnly) {
+    const put = (x, y) => { if (bottomOnly && y < cy) return; ctx.fillRect(x, y, 1, 1, color); };
+    for (let dx = -rx; dx <= rx; dx++) {
+        const dy = Math.round(ry * Math.sqrt(Math.max(0, 1 - Math.pow(dx / rx, 2))));
+        put(cx + dx, cy + dy); put(cx + dx, cy - dy);
+    }
+    for (let dy = -ry; dy <= ry; dy++) {
+        const dx = Math.round(rx * Math.sqrt(Math.max(0, 1 - Math.pow(dy / ry, 2))));
+        put(cx + dx, cy + dy); put(cx - dx, cy + dy);
     }
 }
-function drawKnob(cx, cy, r, frac) {
-    if (!isFinite(frac)) frac = 0;        /* never feed NaN to draw_line */
-    circle(cx, cy, r);
-    const a = (-135 + clampf(frac, 0, 1) * 270) * Math.PI / 180;   /* 270deg sweep from 12 o'clock */
-    const ex = Math.round(cx + Math.sin(a) * (r - 1));
-    const ey = Math.round(cy - Math.cos(a) * (r - 1));
-    draw_line(cx, cy, ex, ey, 1);
+function ellipseFill(ctx, cx, cy, rx, ry, color) {
+    for (let dy = -ry; dy <= ry; dy++) {
+        const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - Math.pow(dy / ry, 2))));
+        if (w > 0) ctx.fillRect(cx - w, cy + dy, w * 2 + 1, 1, color);
+    }
 }
-/* frac 0..1 + display text for knob i on the active page/menu */
+/* render_page_movy.mjs button animation, verbatim. */
+const BTN_PRESS_MS = 120;
+const BTN_FLASH_MS = 300;
+const BTN_RAYS = 8;
+const BTN_RAY_GAP = 2;
+const BTN_RAY_LEN = 2;
+const BTN_RAY_TRAVEL = 4;   /* how far the burst moves out over its life */
+
+/* Impact stubs, following the cap's ellipse so they sit an even gap off the
+ * rim rather than bunching at the flat top and bottom. */
+function buttonRays(ctx, cx, cy, progress) {
+    const out = BTN_RAY_GAP + Math.round(progress * BTN_RAY_TRAVEL);
+    for (let i = 0; i < BTN_RAYS; i++) {
+        const a = (Math.PI * 2 * i) / BTN_RAYS;
+        const ux = Math.cos(a), uy = Math.sin(a);
+        const x0 = cx + ux * (BTN_RX + out);
+        const y0 = cy + uy * (BTN_RY + out);
+        const x1 = cx + ux * (BTN_RX + out + BTN_RAY_LEN);
+        const y1 = cy + uy * (BTN_RY + out + BTN_RAY_LEN);
+        ctx.line(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), 1);
+    }
+}
+
+/* Idle / highlighted / pressed, resolved from the press timestamps alone.
+ * Every press still inside BTN_FLASH_MS keeps its own burst, so a fast
+ * double-tap throws two rings rather than cancelling the first. */
+function buttonPhase(fired, now, held) {
+    const stamps = Array.isArray(fired) ? fired : (fired > 0 ? [fired] : []);
+    const bursts = [];
+    let pressed = false;
+    if (typeof now === "number") {
+        for (const t of stamps) {
+            const age = now - t;
+            if (age < 0 || age >= BTN_FLASH_MS) continue;
+            bursts.push(age / BTN_FLASH_MS);
+            if (age < BTN_PRESS_MS) pressed = true;
+        }
+    }
+    return { pressed, filled: held || bursts.length > 0, bursts };
+}
+
+/* Three states: idle = raised outline; selected = cap filled; fired = cap
+ * pressed down BTN_TRAVEL, sides shortened, stubs radiating. */
+function drawButton(ctx, cx, rowY, phase) {
+    const pressed = phase.pressed;
+    const travel = pressed ? BTN_TRAVEL : 0;
+    const capY = rowY + 1 + BTN_RY + travel;
+    const baseY = capY + BTN_DEPTH - travel;
+    ellipseOutline(ctx, cx, baseY, BTN_RX, BTN_RY, 1, true);   /* base arc */
+    ctx.line(cx - BTN_RX, capY, cx - BTN_RX, baseY, 1);        /* sides */
+    ctx.line(cx + BTN_RX, capY, cx + BTN_RX, baseY, 1);
+    if (phase.filled) ellipseFill(ctx, cx, capY, BTN_RX, BTN_RY, 1);
+    ellipseOutline(ctx, cx, capY, BTN_RX, BTN_RY, 1, false);
+    for (const b of phase.bursts) buttonRays(ctx, cx, capY, b);
+}
+
+/* Press timestamps per cell (index 0-7) for the current page/menu. */
+const btnFired = [[], [], [], [], [], [], [], []];
+function stampButton(k) {
+    const t = now();
+    btnFired[k].push(t);
+    /* keep only presses still inside the flash window */
+    btnFired[k] = btnFired[k].filter(x => t - x < BTN_FLASH_MS);
+    showView('knobs');
+}
+
+/* ================================================================
+ * Labels + enum squares, ported verbatim from Schwung's
+ * render_page_movy.mjs / render_page.mjs so LoopBox cells match the
+ * host's cells pixel for pixel.
+ * ================================================================ */
+const LABEL_CHARS = 5;
+const LBL_H = 7, LBL_FONT_H = 5;
+const ENUM_TEXT_W = ENUM_W - 4;          /* 24 */
+const ENUM_MIN_W = 15;
+const ENUM_PAD_1LINE = 8;                /* 1px frame + 3px margin, both sides */
+const ENUM_PAD_2LINE = 4;                /* 1px frame + 1px margin, both sides */
+
+/* Left edge for a run of `w` pixels centred in the span [x0, x0+span-1];
+ * the extra pixel of an odd leftover always goes to the RIGHT. */
+function centreX(x0, span, w) { return x0 + Math.floor((span - w) / 2); }
+
+function notchCorners(ctx, x, y, w, h) {
+    ctx.fillRect(x, y, 1, 1, 0);
+    ctx.fillRect(x + w - 1, y, 1, 1, 0);
+    ctx.fillRect(x, y + h - 1, 1, 1, 0);
+    ctx.fillRect(x + w - 1, y + h - 1, 1, 1, 0);
+}
+
+/* ---------------- text helpers (render_page.mjs) ---------------- */
+const ASCII_FOLD = {
+    "→": ">", "←": "<", "↔": "<>", "↑": "^", "↓": "v",
+    "—": "-", "–": "-", "−": "-", " ": " ",
+    "°": "deg", "¢": "c", "µ": "u", "μ": "u",
+    "×": "x", "÷": "/", "±": "+/-",
+    "‘": "'", "’": "'", "“": "\"", "”": "\"",
+    "…": "...", "≤": "<=", "≥": ">=", "≠": "!=",
+    "½": "1/2", "¼": "1/4", "¾": "3/4",
+    "²": "2", "³": "3", "∞": "inf", "Ω": "ohm",
+};
+function asciiFold(text) {
+    const s = String(text == null ? "" : text);
+    if (!/[^\x20-\x7e]/.test(s)) return s;
+    let out = "";
+    for (const ch of s) {
+        if (ch >= " " && ch <= "~") { out += ch; continue; }
+        out += ASCII_FOLD[ch] !== undefined ? ASCII_FOLD[ch] : "?";
+    }
+    return out;
+}
+function fitText(ctx, text, maxWidth) {
+    let s = asciiFold(text);
+    if (ctx.textWidth(s) <= maxWidth) return s;
+    while (s.length > 1 && ctx.textWidth(s) > maxWidth) s = s.slice(0, -1);
+    return s;
+}
+function devowel(word, ctx, maxWidth) {
+    const chars = word.split("");
+    for (let i = chars.length - 1; i > 0 && ctx.textWidth(chars.join("")) > maxWidth; i--) {
+        if (/[aeiou]/i.test(chars[i])) chars.splice(i, 1);
+    }
+    return chars.join("");
+}
+function shortenLabel(ctx, label, maxWidth, joiner = "") {
+    const s = asciiFold(label).trim();
+    if (!s) return "";
+    if (ctx.textWidth(s) <= maxWidth) return s;
+    const words = s.split(/[\s_]+/).filter(Boolean);
+    if (words.length > 1) {
+        const head = words.slice(0, -1);
+        const tail = words[words.length - 1];
+        const abbrev = (w, n) => (/^\d+$/.test(w) ? w : w.slice(0, Math.max(1, n)));
+        for (let n = Math.max(...head.map((w) => w.length)); n >= 1; n--) {
+            const cand = head.map((w) => abbrev(w, n)).join(joiner) + joiner + tail;
+            if (ctx.textWidth(cand) <= maxWidth) return cand;
+        }
+        const stem = head.map((w) => abbrev(w, 1)).join(joiner) + joiner;
+        const room = maxWidth - ctx.textWidth(stem);
+        const shortTail = tail.length <= 7 ? tail : devowel(tail, ctx, room);
+        return fitText(ctx, stem + shortTail, maxWidth);
+    }
+    const word = words[0] || s;
+    if (word.length <= 7) return fitText(ctx, word, maxWidth);
+    return fitText(ctx, devowel(word, ctx, maxWidth), maxWidth);
+}
+
+/* ---------------- abbreviation tables (render_page_movy.mjs) ---------------- */
+const WORD_ABBREV = {
+    bandpass: "BPF", highpass: "HPF", lowpass: "LPF", bandwidth: "BW",
+    bitcrusher: "CRU", crusher: "CRU", character: "CHR", channels: "CHN",
+    complexity: "CPX", destination: "DES", multiplier: "MUL",
+    modulations: "MOD", generations: "GNS", progression: "PRG",
+    recordings: "REC", resonators: "RSN", smoothing: "SMO",
+    passthru: "PTH", passthrough: "PTH", fallthrough: "FAL",
+    configuration: "CFG", soundfont: "SF", category: "CAT",
+    attack: "ATK", decay: "DEC", sustain: "SUS", release: "REL", hold: "HLD",
+    envelope: "ENV", env: "ENV", amount: "AMT", amt: "AMT", depth: "DPT",
+    cutoff: "CUT", frequency: "FRQ", freq: "FRQ", resonance: "RES", reso: "RES",
+    filter: "FLT", resonant: "RES", slope: "SLP",
+    oscillator: "OSC", waveform: "WAV", wave: "WAV", shape: "SHP",
+    pitch: "PIT", tune: "TUN", detune: "DET", fine: "FIN", coarse: "CRS",
+    octave: "OCT", transpose: "TRN", semitone: "SEM", glide: "GLD",
+    portamento: "GLD", noise: "NSE", spread: "SPR", offset: "OFS",
+    position: "POS", threshold: "THR", ratio: "RAT", knee: "KNE",
+    modulation: "MOD", velocity: "VEL", pressure: "PRS", aftertouch: "AFT",
+    sensitivity: "SNS", amplitude: "AMP", volume: "VOL", level: "LEV",
+    balance: "BAL", panning: "PAN", width: "WID", phase: "PHS",
+    feedback: "FBK", delay: "DLY", reverb: "REV", chorus: "CHO",
+    flanger: "FLG", phaser: "PHR", tremolo: "TRM", vibrato: "VIB",
+    overdrive: "OVR", distortion: "DST", saturation: "SAT", drive: "DRV",
+    compressor: "CMP", limiter: "LIM", damping: "DMP", diffusion: "DIF",
+    sample: "SMP", start: "STR", length: "LEN", reverse: "RVS",
+    speed: "SPD", random: "RND", quantize: "QNT", divide: "DIV",
+    portion: "PRT", channel: "CHN", output: "OUT", input: "IN",
+    voice: "VCE", voices: "VCES",
+    trigger: "TRG", retrigger: "RTG", retrig: "RTG",
+    scaling: "SCLG", rotation: "ROT",
+    rotate: "ROT", rhythm: "RHY",
+    density: "DNS", unison: "UNI", macro: "MCR", operator: "OP",
+    right: "RGT", left: "LFT", deform: "DFM", unipolar: "UNP", bipolar: "BIP",
+    division: "DIV", matrix: "MTX", color: "CLR", colour: "CLR",
+    porta: "GLD", branch: "BRN", enabled: "EN", enable: "EN",
+    settings: "SET", stereo: "STO", distort: "DST", keytrack: "KTK",
+    cycle: "CYC", general: "GEN", polyphony: "POLY",
+    sends: "SND", send: "SND", expression: "EXP", switch: "SW", group: "GRP",
+    number: "NUM", reset: "RST", advanced: "ADV",
+    predelay: "PDLY", humanize: "HUM", sweep: "SWP", control: "CTL",
+    break: "BRK", point: "PNT", assign: "ASN", performance: "PERF",
+    perform: "PERF", route: "RTE", source: "SRC", grain: "GRN",
+    spectra: "SPC", motion: "MTN", capture: "CAP", oscillators: "OSCS",
+    harmonics: "HRM", brightness: "BRT",
+    transport: "TRS", compress: "CMP", flutter: "FLU", stutter: "STU",
+    octaves: "OCTS", reson: "RES",
+};
+const ABBREV_SYNONYMS = [
+    ["envelope", "env"], ["modulations", "modulation"], ["channels", "channel"],
+    ["bitcrusher", "crusher"], ["passthru", "passthrough"], ["amount", "amt"],
+    ["frequency", "freq"], ["resonance", "reso", "resonant", "reson"],
+    ["glide", "portamento", "porta"], ["color", "colour"], ["divide", "division"],
+    ["distortion", "distort"], ["compressor", "compress"], ["retrigger", "retrig"],
+    ["enable", "enabled"], ["send", "sends"], ["perform", "performance"],
+    ["rotation", "rotate"], ["waveform", "wave"],
+];
+const ABBREV_CANONICAL = (() => {
+    const m = new Map();
+    for (const g of ABBREV_SYNONYMS) for (const w of g) m.set(w, g[0]);
+    return m;
+})();
+function caps(s) { return asciiFold(String(s == null ? "" : s)).toUpperCase(); }
+function preAbbreviate(label, budget) {
+    const s = asciiFold(String(label == null ? "" : label)).trim();
+    if (!s) return "";
+    const parts = s.split(/[\s_]+/).filter(Boolean);
+    const expandable = parts.length === 1 && budget > 0;
+    return parts.map((w) => {
+        const lw = w.toLowerCase();
+        const abbrev = WORD_ABBREV[lw];
+        if (!abbrev) return w;
+        if (!expandable) return abbrev;
+        const canonical = (ABBREV_CANONICAL.get(lw) || lw).toUpperCase();
+        return fontWidth4x5(canonical) <= budget ? canonical : abbrev;
+    }).join(" ");
+}
+/* The label a cell actually shows: abbreviate per word, then squeeze to fit. */
+function labelForCell(text, cellW = CELL_W) {
+    const labelWidth = Math.min(cellW, fontWidth4x5("M".repeat(LABEL_CHARS)));
+    return shortenLabel(FONT4_MEASURE, caps(preAbbreviate(text, labelWidth)), labelWidth);
+}
+
+/* ---------------- enum square (render_page_movy.mjs) ---------------- */
+function fitLine(text, maxWidth) {
+    let t = String(text || "");
+    while (t.length > 1 && fontWidth4x5(t) > maxWidth) t = t.slice(0, -1);
+    return t;
+}
+function enumSquareNaturalLines(text) {
+    const two = enumSquareLines(text, (s) => fontWidth4x5(s) <= ENUM_TEXT_W);
+    return [fitLine(two[0], ENUM_TEXT_W), fitLine(two[1], ENUM_TEXT_W)];
+}
+function enumSquareWidth(text) {
+    const lines = enumSquareNaturalLines(text);
+    const tw = Math.max(fontWidth4x5(lines[0]), fontWidth4x5(lines[1]));
+    const w = tw + (lines[1] ? ENUM_PAD_2LINE : ENUM_PAD_1LINE);
+    return w < ENUM_MIN_W ? ENUM_MIN_W : (w > ENUM_W ? ENUM_W : w);
+}
+/* Big number for a small counted range (font_big_num), centred on the cell. */
+function drawBigNumber(ctx, cx, ky, text) {
+    const t = String(text);
+    bigPrint(ctx, cx - Math.floor(bigWidth(t) / 2), ky + 2, t, 1);
+}
+
+/* ---------------- label cell (render_page_movy.mjs drawLabelCell) ---------------- */
+function drawLabelCell(ctx, cellX, cellW, lblY, label, displayValue, showValue, inverted) {
+    let text = String((showValue ? displayValue : label) || "");
+    const budget = cellW - 2;
+    while (text.length > 1 && fontWidth4x5(text) > budget) text = text.slice(0, -1);
+    if (fontWidth4x5(text) > budget) text = "";
+    const tw = fontWidth4x5(text);
+    const tx = centreX(cellX, cellW, tw);
+    const ty = lblY + Math.floor((LBL_H - LBL_FONT_H) / 2);
+    const strip = inverted && tw > 0;
+    if (strip) {
+        ctx.fillRect(tx - 1, lblY, tw + 2, LBL_H, 1);
+        notchCorners(ctx, tx - 1, lblY, tw + 2, LBL_H);
+        fontPrint4x5(ctx, tx, ty, text, 0);
+    } else {
+        fontPrint4x5(ctx, tx, ty, text, 1);
+    }
+}
+
+/* Which widget a cell draws, from its def alone - mirrors widgetKindFor(meta). */
+function widgetKindFor(d) {
+    if (!d) return 'knob';
+    if (d.trig || d.page !== undefined) return 'button';   /* write-only trigger */
+    if (d.opts || d.e2) return 'enum';
+    if (d.int && (d.hi - d.lo) <= 24) return 'bignum';
+    return 'knob';
+}
+
+/* normalised 0..1 plus display text for cell i */
 function knobInfo(d, i) {
     const inMenu = menu >= 0;
     const raw = inMenu ? menuVals[i] : knobVals[i];
-    if (d.page !== undefined) return [1, '>'];
-    if (d.local)             return [(sessSlot - d.lo) / (d.hi - d.lo), String(sessSlot)];
-    if (d.trig)              return [0, '--'];
+    if (d.page !== undefined) return [1, ''];
+    if (d.trig)  return [0, ''];
+    if (d.local) return [(sessSlot - d.lo) / (d.hi - d.lo), String(sessSlot)];
     if (d.opts) {
-        const idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(raw)));
-        return [d.opts.length > 1 ? idx / (d.opts.length - 1) : 0, String(d.opts[idx])];
+        const ix = Math.max(0, Math.min(d.opts.length - 1, Math.round(raw) || 0));
+        return [d.opts.length > 1 ? ix / (d.opts.length - 1) : 0, String(d.opts[ix])];
     }
+    if (d.e2) return [raw > 0.5 ? 1 : 0, d.e2[raw > 0.5 ? 1 : 0]];
     const f = (raw - d.lo) / ((d.hi - d.lo) || 1);
     let t;
-    if (d.e2)       t = d.e2[raw > 0.5 ? 1 : 0];
-    else if (d.spd) t = Math.pow(2, raw).toFixed(2) + 'x';
+    if (d.spd)      t = Math.pow(2, raw).toFixed(2) + 'x';
     else if (d.clk) t = (0.25 * Math.pow(16, raw)).toFixed(2) + 'x';
     else if (d.int) t = String(Math.round(raw));
     else            t = Number(raw).toFixed(2);
-    return [f, t];
+    return [isFinite(f) ? f : 0, t];
 }
+
+/* Animated enum square — render_page_movy.mjs drawEnumSquare with its width
+ * morph: only the FRAME travels (120ms, easeOut); the glyphs swap outright.
+ * `raw` is the value behind the text so an unread cell never animates in. */
+const ENUM_ANIM_MS = 120;
+const animState = createAnimState();
+function drawEnumSquare(ctx, kx, ky, text, animKey, raw) {
+    const h = BOX_H;
+    const target = enumSquareWidth(text);
+    let w = target;
+    if (animKey !== undefined) {
+        const a = observeLanded(animState, "enumw:" + animKey, raw, target, now(), ENUM_ANIM_MS);
+        if (a.moving && typeof a.from === "number") {
+            w = Math.round(lerp(a.from, target, easeOut(a.t)));
+            if (w < ENUM_MIN_W) w = ENUM_MIN_W;
+            if (w > ENUM_W) w = ENUM_W;
+        }
+    }
+    const bx = kx + Math.floor((ENUM_W - w) / 2);
+    ctx.fillRect(bx, ky, w, 1, 1);
+    ctx.fillRect(bx, ky + h - 1, w, 1, 1);
+    ctx.fillRect(bx, ky, 1, h, 1);
+    ctx.fillRect(bx + w - 1, ky, 1, h, 1);
+    notchCorners(ctx, bx, ky, w, h);
+    const budget = w - 4;
+    const nat = enumSquareNaturalLines(text);
+    const line1 = fitLine(nat[0], budget);
+    const line2 = fitLine(nat[1], budget);
+    const totalH = line2.length > 0 ? 11 : 5;
+    const startY = ky + 1 + Math.floor((h - 2 - totalH) / 2);
+    const tx = (lw) => centreX(bx + 1, w - 2, lw);
+    fontPrint4x5(ctx, tx(fontWidth4x5(line1)), startY, line1, 1);
+    if (line2.length > 0) fontPrint4x5(ctx, tx(fontWidth4x5(line2)), startY + 6, line2, 1);
+}
+
+/* ---- Schwung page chrome (render_page_movy.mjs / list_geometry.mjs, ported) ----
+ * HEADER: a 5-row font4x5 line at y=1 in a 7-row band; a held knob takes the
+ * band over, inverted, showing that param's full name and value. The split
+ * between the two sides is measured, right first, left gets the remainder.
+ * BANK BAR: one segment per page on row 7, the current one two rows tall.
+ * FOOTER: [key, action] hint pairs at y=57, key inverted into a notched pill,
+ * the BACK pair pinned to the right edge. */
+const HEADER_H = 7, BAR_Y = 7, FOOTER_Y = 57, FOOTER_H = 7;
+const HEADER_GAP = 4, HEADER_MIN_LEFT = Math.floor(SCREEN_W * 0.55);
+const HINT_PAD = 2, HINT_GAP = 4;
+function fit5(t, maxW) { return caps(fitText(FONT4_MEASURE, caps(t), maxW)); }
+function drawHeader(ctx, left, right, inverted) {
+    const W = SCREEN_W;
+    if (inverted) {
+        ctx.fillRect(0, 0, W, HEADER_H, 1);
+        ctx.fillRect(0, 0, 1, 1, 0);            /* top two corners only: the band is the screen's edge */
+        ctx.fillRect(W - 1, 0, 1, 1, 0);
+    }
+    const color = inverted ? 0 : 1;
+    let r = right ? fit5(right, Math.floor(W * 0.6)) : '';
+    let rw = r ? fontWidth4x5(r) : 0;
+    if (rw && W - 4 - rw - HEADER_GAP < HEADER_MIN_LEFT) {
+        r = fit5(right, Math.max(0, W - 4 - HEADER_MIN_LEFT - HEADER_GAP));
+        rw = r ? fontWidth4x5(r) : 0;
+    }
+    const l = fit5(left || '', W - 4 - (rw ? rw + HEADER_GAP : 0));
+    fontPrint4x5(ctx, 2, 1, l, color);
+    if (r) fontPrint4x5(ctx, W - rw - 2, 1, r, color);
+}
+function drawBankBar(ctx, pageIndex, pageCount) {
+    if (pageCount <= 1) return;
+    const W = SCREEN_W, gap = new Array(pageCount).fill(0);
+    const keep = Math.min(pageCount - 1, Math.max(0, W - pageCount));
+    for (let i = 0; i < keep; i++) gap[1 + Math.floor(i * (pageCount - 1) / keep)] = 1;
+    const area = W - keep, edge = (b) => Math.floor(b * area / pageCount);
+    let x = 0;
+    for (let b = 0; b < pageCount; b++) {
+        x += gap[b];
+        const segW = edge(b + 1) - edge(b), h = (b === pageIndex) ? 2 : 1;
+        if (segW > 0) ctx.fillRect(x, BAR_Y, segW, h, 1);
+        x += segW;
+    }
+}
+function hintPairWidth(key, action) { return fontWidth4x5(caps(key)) + HINT_PAD + HINT_GAP + fontWidth4x5(caps(action)) + HINT_GAP; }
+function isBackHint(h) { return !!h && /^back$/i.test(String(h[0]).trim()); }
+function drawFooter(ctx, hints) {
+    if (!hints || !hints.length) return 0;
+    const W = SCREEN_W, ty = FOOTER_Y + Math.floor((FOOTER_H - FONT4_HEIGHT) / 2);
+    const list = hints.filter(Boolean);
+    const backIdx = list.findIndex(isBackHint);
+    const back = backIdx >= 0 ? list[backIdx] : null;
+    const flow = backIdx >= 0 ? list.filter((_, i) => i !== backIdx) : list;
+    const drawPair = (x, h) => {
+        const key = caps(h[0]), action = caps(h[1]);
+        const kw = fontWidth4x5(key), pw = kw + HINT_PAD * 2, ph = FONT4_HEIGHT + 2;
+        ctx.fillRect(x, ty - 1, pw, ph, 1);
+        if (pw >= 3) notchCorners(ctx, x, ty - 1, pw, ph);
+        fontPrint4x5(ctx, x + HINT_PAD, ty, key, 0);
+        fontPrint4x5(ctx, x + kw + HINT_PAD + HINT_GAP, ty, action, 1);
+    };
+    let drawn = 0;
+    const backW = back ? hintPairWidth(back[0], back[1]) : 0;
+    const backX = back ? W - backW : W, limit = back ? backX : W;
+    let x = 1;
+    for (const h of flow) {
+        if (x + hintPairWidth(h[0], h[1]) > limit) break;
+        drawPair(x, h); x += hintPairWidth(h[0], h[1]); drawn++;
+    }
+    if (back) { drawPair(Math.max(x, backX), back); drawn++; }
+    return drawn;
+}
+/* Full parameter names for the touched header (cells keep the abbreviated label). */
+const PAGE_NAMES = ['Loop', 'Texture', 'Tone', 'Heads'];
+const FULL_NAMES = {
+    v_pitch: 'Pitch', v_filter: 'Filter', v_pan: 'Pan', v_volume: 'Volume', v_start: 'Start', v_end: 'End',
+    v_reverse: 'Reverse', v_sendA: 'Send A', v_clock: 'Clock', v_djReso: 'Resonance', v_sat: 'Saturation',
+    v_comp: 'Compressor', v_wowflut: 'Wow/Flutter', v_scatter: 'Scatter', v_glitch: 'Seed', v_sendB: 'Send B',
+    v_eqBass: 'Bass', v_eqPresFrq: 'Mid Freq', v_eqPresAmt: 'Mid Gain', v_eqTreble: 'Treble', v_tilt: 'Tilt',
+    v_atk: 'Attack', v_rel: 'Release', _heads: 'Playheads',
+    v_ph1mode: 'Head 1 Mode', v_ph1spd: 'Head 1 Speed', v_ph2mode: 'Head 2 Mode', v_ph2spd: 'Head 2 Speed',
+    v_ph3mode: 'Head 3 Mode', v_ph3spd: 'Head 3 Speed', v_ph4mode: 'Head 4 Mode', v_ph4spd: 'Head 4 Speed',
+    inputMonitor: 'Monitor', preamp: 'Tape Style', inputGain: 'Input Gain', inLow: 'Input Low', inMid: 'Input Mid',
+    inMidFreq: 'Input Mid Freq', inHigh: 'Input High', inHighFreq: 'Input High Freq',
+    sendAType: 'Send A FX', sendAM1: 'Send A Amount', sendAM2: 'Send A Macro', sendADrift: 'Send A Drift',
+    sendBType: 'Send B FX', sendBM1: 'Send B Amount', sendBM2: 'Send B Macro', sendBDrift: 'Send B Drift',
+    stMix: 'Stumble Mix', stStep: 'Stumble Step', stOdds: 'Stumble Odds', stSize: 'Stumble Size',
+    stReach: 'Stumble Reach', stKind: 'Stumble Kind', jump: 'Jump', scan: 'Scan',
+    masterVol: 'Master Volume', rootNote: 'Root Note', overdubMode: 'Overdub Mode', masterLoCut: 'Master Lo Cut',
+    masterHiCut: 'Master Hi Cut', globalSat: 'Global Sat', midiIn: 'MIDI In', armThresh: 'Arm Threshold',
+    tapeDrive: 'Tape Drive', tapeWow: 'Tape Wow', tapeFlut: 'Tape Flutter', tapeHF: 'Tape HF Loss',
+    tapeLoCut: 'Tape Lo Cut', tapeNoise: 'Tape Noise', tapeGen: 'Generations',
+    sessSlot: 'Session Slot', sessSave: 'Save Session', sessLoad: 'Load Session',
+};
+function fullName(d) { return (d && (FULL_NAMES[d.k] || d.lbl)) || ''; }
+/* The knob grid: loop page, menu, or (with a punch pad held) the held effect's
+ * four params on knobs 5-8. One renderer, three sources of cells. */
 function drawKnobView() {
     clear_screen();
-    const defs  = (menu >= 0) ? MENU_DEFS[menu] : PAGES[page()];
-    const title = (menu >= 0) ? MENU_NAMES[menu] : ('T' + (sel + 1) + ' P' + (page() + 1));
-    print(0, 0, title, 1);
-    draw_line(0, 9, SCREEN_W, 9, 1);
+    const ctx = screenCtx();
+    const inPunch = (menu < 0 && punchMode && punchActive >= 0);
+    let defs, title, scope;
+    if (menu === 5 && confirmSave) {                        /* overwrite popup, drawn as two buttons */
+        drawHeader(ctx, 'OVERWRITE SLOT ' + sessSlot + '?', null, true);
+        fontPrint4x5(ctx, 2, 11, String(sessNames[sessSlot] || '').toUpperCase(), 1);
+        drawFooter(ctx, [['K5', 'NO'], ['K8', 'YES']]);
+        for (const [i, lbl] of [[4, 'NO'], [7, 'YES']]) {
+            const col = i % 4, cellX = col * CELL_W;
+            drawButton(ctx, cellX + Math.floor(CELL_W / 2), ROW1_Y, buttonPhase(btnFired[i], now(), i === lastKnob));
+            drawLabelCell(ctx, cellX, CELL_W, LBL1_Y, lbl, lbl, false, i === lastKnob);
+        }
+        host_flush_display(); return;
+    }
+    let pageName, footer;
+    if (menu >= 0)      { defs = MENU_DEFS[menu]; title = 'LoopBox'; pageName = MENU_NAMES[menu]; scope = 'm' + menu;
+                          footer = (menu === 5) ? [[String(sessSlot), sessNames[sessSlot] || 'empty'], ['Back', 'Exit']] : [['Back', 'Exit']]; }
+    else if (inPunch)   { defs = null; title = 'Punch'; pageName = PUNCH_NAMES[punchActive]; scope = 'p' + punchActive;
+                          footer = [['Press', PUNCH_PRESS[punchActive]]]; }
+    else                { defs = PAGES[page()]; title = 'Track ' + (sel + 1) + ' ' + STATE_NAMES[voiceState[sel]]; pageName = PAGE_NAMES[page()]; scope = 't' + sel + 'p' + page();
+                          footer = (page() === 3) ? [['Jog', jogHead >= 0 ? 'Head ' + (jogHead + 1) : 'Touch a head'], ['Up/Dn', 'Page']] : [['Jog', 'Scrub'], ['Up/Dn', 'Page']]; }
+    /* a held knob takes the header over: full name + value, inverted (movyHeaderFor) */
+    let hdrL = title, hdrR = pageName, hdrInv = false;
+    if (lastKnob >= 0) {
+        if (inPunch && lastKnob >= 4) { hdrL = PUNCH_PARAMS[punchActive][lastKnob - 4]; hdrR = Number(punchVals[punchActive][lastKnob - 4]).toFixed(2); hdrInv = true; }
+        else if (defs && defs[lastKnob]) { hdrL = fullName(defs[lastKnob]); hdrR = knobInfo(defs[lastKnob], lastKnob)[1]; hdrInv = true; }
+    }
+    drawHeader(ctx, hdrL, hdrR, hdrInv);
+    if (menu < 0 && !inPunch) drawBankBar(ctx, page(), PAGES.length);
+    drawFooter(ctx, footer);
     for (let i = 0; i < 8; i++) {
-        const d = defs[i]; if (!d) continue;
         const col = i % 4, row = (i < 4) ? 0 : 1;
-        const cx = 16 + col * 32, cy = row ? 46 : 21;
+        const cellX = col * CELL_W;
+        const kx = cellX + Math.floor((CELL_W - KW) / 2);
+        const ky = row ? ROW1_Y : ROW0_Y;
+        const lblY = row ? LBL1_Y : LBL0_Y;
+        const touched = (i === lastKnob);
+        if (inPunch) {
+            /* knobs 1-4 do nothing in punch mode: leave them empty, not misleading */
+            if (i < 4) continue;
+            const j = i - 4, v = punchVals[punchActive][j];
+            drawArcKnob(ctx, kx, ky, isFinite(v) ? v : 0);
+            drawLabelCell(ctx, cellX, CELL_W, lblY, labelForCell(PUNCH_PARAMS[punchActive][j]),
+                          caps(Number(v).toFixed(2)), touched, touched);
+            continue;
+        }
+        const d = defs[i]; if (!d) continue;
         const inf = knobInfo(d, i);
-        drawKnob(cx, cy, 7, inf[0]);
-        /* name normally; the touched knob shows its value instead */
-        /* 32px cell = 5 chars at 6px: number + 4-char label, or the value when touched */
-        let txt = (i === lastKnob) ? String(inf[1]) : ((i + 1) + String(d.lbl).substring(0, 4));
-        txt = txt.substring(0, 5);
-        const w = txt.length * 6;
-        const cellL = col * 32, x = cellL + Math.max(0, (32 - w) >> 1);
-        print(x, row ? 55 : 30, txt, 1);
+        const kind = widgetKindFor(d);
+        if (kind === 'button')      drawButton(ctx, cellX + Math.floor(CELL_W / 2), ky, buttonPhase(btnFired[i], now(), touched));
+        else if (kind === 'enum') {
+            const raw = (menu >= 0) ? menuVals[i] : knobVals[i];
+            drawEnumSquare(ctx, kx, ky, inf[1], scope + ':' + i, raw);
+        }
+        else if (kind === 'bignum') drawBigNumber(ctx, cellX + Math.floor(CELL_W / 2), ky, inf[1]);
+        else                        drawArcKnob(ctx, kx, ky, inf[0]);
+        drawLabelCell(ctx, cellX, CELL_W, lblY, labelForCell(d.lbl), caps(inf[1]), touched, touched);
     }
     host_flush_display();
 }
@@ -389,8 +925,16 @@ function drawKnobView() {
 /* ---- Loop waveform (min/max envelope) with the active playheads over it ---- */
 function drawWaveView() {
     clear_screen();
-    print(0, 0, 'T' + (sel + 1) + '  ' + STATE_NAMES[voiceState[sel]] + '  ' + loopLen + 's', 1);
-    draw_line(0, 9, SCREEN_W, 9, 1);
+    const ctx = screenCtx();
+    /* head modes at a glance: - off, F fwd, B bwd, P ping (e.g. 'F-FP') */
+    let hm = '';
+    if (headsStr) {
+        const MODE_CH = ['-', 'F', 'B', 'P'];
+        const parts = headsStr.split(';');
+        for (let k = 0; k < 4; k++) { const kv = (parts[k] || '0,0').split(','); hm += MODE_CH[(parseInt(kv[0]) || 0) & 3]; }
+    }
+    drawHeader(ctx, 'Track ' + (sel + 1) + ' ' + STATE_NAMES[voiceState[sel]] + ' ' + loopLen + 's', hm ? 'Heads ' + hm : null, false);
+    drawBankBar(ctx, page(), PAGES.length);
     const midY = 34, halfH = 22;
     if (waveStr && waveStr.length >= 256) {
         for (let x = 0; x < 128; x++) {
@@ -402,7 +946,7 @@ function drawWaveView() {
             fill_rect(x, yTop, 1, Math.max(1, yBot - yTop + 1), 1);
         }
     } else {
-        print(0, 30, '(empty loop)', 1);
+        tzPrint(ctx, 2, 30, 'EMPTY LOOP', 1);
     }
     if (headsStr) {                                   /* playheads: dashed verticals + number */
         const parts = headsStr.split(';');
@@ -411,30 +955,41 @@ function drawWaveView() {
             if ((parseInt(kv[0]) || 0) === 0) continue;
             const x = Math.min(127, Math.round(((parseInt(kv[1]) || 0) / 999) * 127));
             for (let y = 11; y <= 56; y += 2) px(x, y);
-            print(Math.min(122, Math.max(0, x - 2)), 56, String(k + 1), 1);
+            fontPrint4x5(ctx, Math.min(124, Math.max(0, x - 1)), 58, String(k + 1), 1);
         }
     }
     host_flush_display();
 }
+
+/* Main overview: header, 16-track strip, meters, and a contextual hint. */
 function drawUI() {
     if (view === 'knobs') { drawKnobView(); return; }
     if (view === 'wave')  { drawWaveView(); return; }
     clear_screen();
-    print(0, 0, 'LB T' + (sel + 1) + ' ' + STATE_NAMES[voiceState[sel]] + '  C' + cpu + '%', 1);
-    draw_line(0, 9, SCREEN_W, 9, 1);
-    for (let i = 0; i < NV; i++) {                 /* 16-track strip */
+    const ctx = screenCtx();
+    drawHeader(ctx, 'Track ' + (sel + 1) + ' ' + STATE_NAMES[voiceState[sel]], 'CPU ' + cpu + '%', false);
+    for (let i = 0; i < NV; i++) {                 /* 16-track strip: height = state */
         const st = voiceState[i], x = i * 8;
         const h = (st === 0) ? 1 : (st === 3 ? 3 : 6);
         fill_rect(x, 11, 6, h, 1);
         if (i === sel) fill_rect(x, 19, 6, 1, 1);   /* selected underline */
     }
     draw_line(0, 23, SCREEN_W, 23, 1);
-    if (menu >= 0) print(0, 27, MENU_NAMES[menu] + (lastKnob < 0 ? '' : '  ' + lastKnobLbl + ' ' + lastKnobVal), 1);
-    else if (punchMode) print(0, 27, 'PUNCH ' + PUNCH_NAMES[punchActive] + (lastKnob < 0 ? '' : '  ' + lastKnobLbl + ' ' + lastKnobVal), 1);
-    else print(0, 27, 'P' + (page() + 1) + (lastKnob < 0 ? '  turn a knob' : '  E' + (lastKnob + 1) + ' ' + lastKnobLbl + ' ' + lastKnobVal), 1);
-    print(0, 39, 'Loop ' + loopLen + 's   In ' + inPeak, 1);
-    if (tickCount < statusMsgUntil) print(0, 54, statusMsg, 1);
-    else print(0, 54, (muteHeld ? 'MUTE+pad  ' : 'hold=clr Undo ') + 'Sh+FX=latch', 1);
+    tzPrint(ctx, 0, 27, ('LOOP ' + loopLen + 'S').toUpperCase(), 1);
+    const inTxt = 'IN ' + inPeak;
+    tzPrint(ctx, SCREEN_W - tzWidth(inTxt) - 1, 27, inTxt, 1);
+    /* one line of context: what the modifiers do right now, or a status message */
+    if (tickCount < statusMsgUntil) fontPrint4x5(ctx, 2, FOOTER_Y + 1, caps(statusMsg), 1);
+    else {
+        let hints;
+        if (muteHeld)       hints = [['Mute+Pad', 'Mute track']];
+        else if (copyHeld)  hints = (cloneSrc < 0) ? [['Copy+Pad', 'Source']] : [['Copy', 'Tap target pad']];
+        else if (loopHeld)  hints = [['Loop+Pad', 'Length']];
+        else if (shiftHeld) hints = [['Shift', 'Speed / Latch / Arm']];
+        else if (punchMode && punchActive >= 0) hints = [['Punch', PUNCH_NAMES[punchActive]]];
+        else hints = [['Hold pad', 'Clear'], ['Undo', 'Restore']];
+        drawFooter(ctx, hints);
+    }
     host_flush_display();
 }
 
@@ -460,7 +1015,7 @@ globalThis.tick = function () {
     if (menuReload) reloadMenu();
     if (menu === 5 && tickCount % 4 === 0) {
         const st = gp('sessStatus');
-        if (st && st !== sessLast) { sessLast = st; if (st === 'OK') { needReload = true; menuReload = true; }
+        if (st && st !== sessLast) { sessLast = st; if (st === 'OK') { needReload = true; menuReload = true; pollSessNames(); }
             if (st) setMsg('Slot ' + sessSlot + ' ' + st); }
     }
     if (resumeRepaint > 0) { resumeRepaint--; paintAll(true); }   /* force LEDs back after resume */
@@ -500,7 +1055,7 @@ globalThis.onMidiMessageInternal = function (data) {
     const status = data[0] & 0xf0, d1 = data[1], d2 = data[2];
 
     if (status === 0xb0) {                          /* CC: knobs + buttons */
-        if (d1 === MoveBack && d2 > 0) { if (menu >= 0) { menu = -1; paintTrackLEDs(); return; } clearAllLEDs(); host_exit_module(); return; }
+        if (d1 === MoveBack && d2 > 0) { if (confirmSave) { confirmSave = false; setMsg('not saved'); dirty = true; return; } if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); dirty = true; return; } clearAllLEDs(); host_exit_module(); return; }
         if (d1 === MoveShift) { shiftHeld = d2 > 0; return; }
         if (d1 === MoveMute)  { muteHeld = d2 > 0; paintNav(); return; }     /* Mute modifier (lights the button) */
         if (d1 === MoveCapture && d2 > 0) { openMenu(4); return; }           /* Capture = Tape menu */
@@ -526,8 +1081,8 @@ globalThis.onMidiMessageInternal = function (data) {
             sp('scrub', String(dv));                                         /* scrub the tape */
             setMsg('scrub ' + (dv > 0 ? '>>' : '<<')); showView('wave'); return;
         }
-        if (d1 === MoveDown  && d2 > 0) { setPage(loopPage + 1); return; }   /* next loop page */
-        if (d1 === MoveUp    && d2 > 0) { setPage(loopPage - 1); return; }   /* prev loop page */
+        if (d1 === MoveDown  && d2 > 0) { setPage(loopPage + 1); showView('knobs'); return; }   /* next loop page (shown) */
+        if (d1 === MoveUp    && d2 > 0) { setPage(loopPage - 1); showView('knobs'); return; }   /* prev loop page (shown) */
         if (d1 === MoveUndo  && d2 > 0) {                                    /* Undo the last clear */
             if (lastCleared >= 0) { spCmd('unclr:' + lastCleared); voiceState[lastCleared] = 2;
                 enqLED(LEFT_NOTES[lastCleared], padColor(lastCleared)); setMsg('T' + (lastCleared + 1) + ' restored'); lastCleared = -1; }
@@ -536,12 +1091,7 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         const rowIdx = ROW_CCS.indexOf(d1);
         if (rowIdx >= 0) {                          /* track buttons = menus */
-            if (d2 > 0) {
-                if (menu === rowIdx) menu = -1;
-                else if (!MENU_DEFS[rowIdx]) { setMsg(MENU_NAMES[rowIdx] + ': soon'); menu = -1; }
-                else { menu = rowIdx; menuReload = true; setMsg(MENU_NAMES[rowIdx]); }
-                paintTrackLEDs();
-            }
+            if (d2 > 0) openMenu(rowIdx);
             return;
         }
         const k = d1 - MoveKnob1;
@@ -555,14 +1105,15 @@ globalThis.onMidiMessageInternal = function (data) {
                     nv = clampf(nv, 0, 1);
                     punchVals[punchActive][j] = nv; sp('pfx', punchActive + ':' + j + ':' + nv.toFixed(4));
                     lastKnob = k; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = nv.toFixed(2);
+                    showView('knobs');
                 }
                 return;
             }
             const def = PAGES[page()][k];
-            if (def.page !== undefined) { if (decodeDelta(d2) !== 0) setPage(def.page); return; }
+            if (def.page !== undefined) { if (decodeDelta(d2) !== 0) { stampButton(k); setPage(def.page); } return; }
             if (def.opts) {                                  /* enum page knob (playhead modes) */
-                const dd = decodeDelta(d2); const dir = dd > 0 ? 1 : (dd < 0 ? -1 : 0);
-                const ix = Math.max(0, Math.min(def.opts.length - 1, Math.round(knobVals[k]) + dir));
+                const st = enumSteps(k, decodeDelta(d2)); if (st === 0) return;
+                const ix = Math.max(0, Math.min(def.opts.length - 1, Math.round(knobVals[k]) + st));
                 knobVals[k] = ix; sp(def.k, def.opts[ix]);
                 lastKnob = k; lastKnobLbl = def.lbl; lastKnobVal = def.opts[ix]; showView('knobs'); return;
             }
@@ -622,7 +1173,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 in STEP_TO_TRACK) {
             const t = STEP_TO_TRACK[d1];
             if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); }
-            if (t === sel) setPage((loopPage + 1) % NPAGES);   /* same step again = next loop page */
+            if (t === sel) { setPage((loopPage + 1) % NPAGES); showView('knobs'); }   /* same step again = next loop page */
             else { selectTrack(t); showView('wave'); }
             return;
         }
@@ -631,13 +1182,15 @@ globalThis.onMidiMessageInternal = function (data) {
             if (shiftHeld && punchLatched[i]) {     /* Shift+pad on a latched effect = unlatch (stop) */
                 punchLatched[i] = false;
                 const hi0 = heldPunch.indexOf(i); if (hi0 >= 0) heldPunch.splice(hi0, 1);
+                const pi0 = physHeld.indexOf(i);  if (pi0 >= 0) physHeld.splice(pi0, 1);
                 sp('punch', 'off:' + i); sp('punchPress', i + ':0');
-                if (heldPunch.length) punchActive = heldPunch[heldPunch.length - 1];
+                if (physHeld.length) punchActive = physHeld[physHeld.length - 1];
                 else { punchActive = -1; punchMode = false; needReload = true; }
                 enqLED(RIGHT_NOTES[i], rightColor(i)); setMsg('Unlatch ' + PUNCH_NAMES[i]); return;
             }
             if (shiftHeld) punchLatched[i] = true;  /* Shift+pad = latch on (stays after release) */
             if (heldPunch.indexOf(i) < 0 && heldPunch.length < 4) heldPunch.push(i);
+            if (physHeld.indexOf(i) < 0) physHeld.push(i);
             punchActive = i; punchMode = true;
             for (let j = 0; j < 4; j++) sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4)); /* push this pad's params */
             sp('punch', 'on:' + i);
@@ -654,6 +1207,7 @@ globalThis.onMidiMessageInternal = function (data) {
     }
 
     if (status === 0x80 || (status === 0x90 && d2 === 0)) {   /* note-off */
+        if (d1 < 10) { if (lastKnob === d1) { lastKnob = -1; dirty = true; } return; }   /* knob released */
         if (d1 in NOTE_TO_LEFT) {
             const i = NOTE_TO_LEFT[d1];
             if (mutePressed[i]) { mutePressed[i] = false; return; }   /* release of a Mute+tap — never clears */
@@ -667,11 +1221,15 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 in NOTE_TO_RIGHT) {                  /* release punch effect */
             const i = NOTE_TO_RIGHT[d1];
-            if (punchLatched[i]) return;            /* latched: ignore release, keep running */
+            /* A latched effect keeps RUNNING, but the knobs go back to the page as
+             * soon as no punch pad is physically held — otherwise knobs 5-8 (H3/H4
+             * on P4) stay captured by the punch effect indefinitely. */
+            const pi = physHeld.indexOf(i); if (pi >= 0) physHeld.splice(pi, 1);
+            if (physHeld.length) punchActive = physHeld[physHeld.length - 1];
+            else { punchActive = -1; punchMode = false; needReload = true; }
+            if (punchLatched[i]) { enqLED(RIGHT_NOTES[i], rightColor(i)); return; }   /* latched: keep running */
             const hi = heldPunch.indexOf(i); if (hi >= 0) heldPunch.splice(hi, 1);
             sp('punch', 'off:' + i); sp('punchPress', i + ':0');
-            if (heldPunch.length) punchActive = heldPunch[heldPunch.length - 1];
-            else { punchActive = -1; punchMode = false; needReload = true; }
             enqLED(RIGHT_NOTES[i], rightColor(i));
         }
         return;
