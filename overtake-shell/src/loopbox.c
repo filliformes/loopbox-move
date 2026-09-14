@@ -199,27 +199,63 @@ typedef struct {
 #define PUNCH_BUF 88200
 #define NUM_PUNCH 16
 enum { PM_REPEAT=0, PM_PITCH, PM_REVERSE, PM_HAZE, PM_SHIMMER, PM_STRETCH,
-       PM_MOSAIC, PM_SMEAR, PM_STRUM, PM_GLIDE, PM_CHOP, PM_NONE };
+       PM_MOSAIC, PM_SMEAR, PM_STRUM, PM_GLIDE, PM_CHOP, PM_PALETTE, PM_NONE };
 #define SHBUF 8192
+#define NUM_PSLOTS 5   /* punch effects in series */
 typedef struct { int mech; double param; } PunchDef;   /* param = division (REPEAT) or ratio/default */
 static const PunchDef PUNCH_DEFS[NUM_PUNCH] = {   /* right 4x4, top->bottom, grouped by family */
-    {PM_REPEAT,4},{PM_REPEAT,3},{PM_REPEAT,8},{PM_REPEAT,16},        /* Loops:  Loop16 Loop12 LoopSh LoopSr */
+    {PM_REPEAT,3},{PM_REPEAT,4},{PM_REPEAT,8},{PM_CHOP,0},            /* Loops:  Loop12 Loop16 LoopSh Chop */
     {PM_HAZE,0},{PM_MOSAIC,0},{PM_SMEAR,0},{PM_STRUM,0},              /* Grains: Haze Mosaic Smear Strum */
     {PM_PITCH,2.0},{PM_PITCH,0.5},{PM_GLIDE,0},{PM_SHIMMER,0},        /* Pitch:  Oct+ Oct- Glide Shimmer */
-    {PM_STRETCH,0.5},{PM_STRETCH,1.0},{PM_REVERSE,1.0},{PM_CHOP,0}    /* Time:   Stretch Freeze Reverse Chop */
+    {PM_STRETCH,0.5},{PM_STRETCH,1.0},{PM_REVERSE,1.0},{PM_PALETTE,0} /* Time:   Stretch Freeze Reverse Palette */
 };
-/* One active punch slot: its own capture ring + running state (up to 4 in series). */
+/* Chop patterns (from Signal): Patrn knob picks one; steps advance one per slice. */
+#define NUM_CHOP_PAT 8
+static const uint8_t CHOP_PAT[NUM_CHOP_PAT][16] = {
+    {1,1,1,0,1,0,1,0,0,1,0,0,0,0,0,0},   /* Morse burst */
+    {1,1,1,0,1,0,1,1,1,0,0,0,0,0,0,0},   /* Morse SOS half */
+    {1,0,1,1,1,0,1,0,1,0,1,1,1,0,0,0},   /* Morse AR */
+    {1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0},   /* pairs */
+    {1,1,1,1,0,0,0,0,1,1,1,0,0,0,0,0},   /* Ikeda burst / silence */
+    {1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0},   /* straight 8ths */
+    {1,1,1,0,1,0,1,0,1,0,1,1,1,0,0,0},   /* Morse mixed */
+    {1,0,1,0,0,1,0,1,1,0,1,0,0,1,0,1},   /* syncopated */
+};
+/* ---- FX sequencer (Delete button): ONE shared 16-step pattern of punch pads ----
+ * Modelled on Polyend MESS: a step holds up to 5 pads with their four knobs and
+ * pressure locked at write time, a per-step play chance (Always / 10..90% /
+ * Like Last / Play X Skip Y), extension steps that hold the previous step, a
+ * length, a speed division, gate, swing and direction. Runs per block from the
+ * Move tempo; pads it triggers go through the same punch_on/off as a finger. */
+#define FXSEQ_STEPS 16
+#define FXSEQ_MAXPADS 5
+static const double FXSEQ_DIV[7]={0.125,0.25,1.0/3.0,0.5,1.0,2.0,4.0};   /* beats per step: 1/32 1/16 1/8T 1/8 1/4 1/2 1 */
+static const char *fxspeed_opts[7]={"1/32","1/16","1/8T","1/8","1/4","1/2","1"};
+static const char *fxdir_opts[4]={"Fwd","Bwd","Ping","Rand"};
+typedef struct { uint8_t n, ext, chance; uint8_t pad[FXSEQ_MAXPADS]; float lock[FXSEQ_MAXPADS][4]; float press[FXSEQ_MAXPADS]; int cycles; } FxStep;
+typedef struct {
+    int run, speed, len, dir; float gate, swing;
+    FxStep st[FXSEQ_STEPS];
+    int pos, pingDir, counter, gateTimer, stepLen, lastTrig, odd, restart; uint32_t rng;
+    uint8_t seqHeld[NUM_PUNCH], userHeld[NUM_PUNCH];
+} FxSeq;
+
+/* One active punch slot: its own capture ring + running state (up to 5 in series). */
 typedef struct {
     int idx;                                   /* effect 0..15, or -1 = empty */
     double env; int releasing;                 /* click-free fade-in / fade-out on press/release */
     float ringL[PUNCH_BUF], ringR[PUNCH_BUF]; int w;
     double readPhase, sliceStart, sliceLen;
+    double dPow, wPow, mkGain;                  /* loudness match: dry vs wet power, makeup in use */
+    double elCur, sliceStartT, pressSm;         /* slice length in use (changes only at a wrap), pending start, smoothed pad pressure */
     Biquad toneFilt;
     /* granular pool (Haze / Mosaic / Smear / Strum / Stretch share it) */
     double gPos[4],gAge[4],gDur[4],gRate[4],gGl[4],gGr[4]; int gAct[4];
-    double gSched, stGrid; uint32_t gRng; int gIdx;
+    double gSched, stGrid; uint32_t gRng; int gIdx, gPrime;   /* gPrime: first grain fires now + a mid-window one */
     /* glide: per-repeat rate ramp; chop: onset slice + pattern */
-    double glRate; int glCycle; int chopStep; uint32_t chopPat;
+    double glRate; int glCycle; int chopStep, chopIdx;
+    /* Palette punch (block-processed, 1-block latency like the send buses) */
+    float pinL[128],pinR[128],poutL[128],poutR[128];
     /* shimmer 2-head pitch-shift + LP feedback */
     float shL[SHBUF], shR[SHBUF]; int shW; double shR1, shFbL, shFbR;
 } PunchSlot;
@@ -241,7 +277,8 @@ typedef struct {
     float dropAmt; int dropActive,dropLeft; uint32_t dropRng;
     int scanTimer;   /* Perform: Scan gesture — playheads run fast while >0 */
     /* Palette send buses (block-processed, 1-block latency) + master limiter */
-    pfx_slot *busA,*busB;
+    pfx_slot *busA,*busB,*punchFx;
+    atomic_int fxSel[3], fxBusy[3];     /* pending effect id per bus (A, B, punch) for the worker; busy = bus muted while it swaps */
     float sbufAL[128],sbufAR[128],sbufBL[128],sbufBR[128];
     float sretAL[128],sretAR[128],sretBL[128],sretBR[128];
     double limEnv;
@@ -251,7 +288,12 @@ typedef struct {
     /* Punch-in FX (master insert): up to 4 slots in series, per-effect params */
     float punchParams[NUM_PUNCH][4];   /* [effect][Rate,Pitch,Tone,Mix] */
     float punchPress[NUM_PUNCH];        /* per-effect pad pressure */
-    PunchSlot pslot[4];
+    PunchSlot pslot[NUM_PSLOTS];
+    FxSeq fx; int punchFxId;           /* FX sequencer (Delete button) + the Palette punch slot's current effect */
+    /* Overdub undo: copy-on-write of the samples an overdub overwrites (one shared buffer) */
+    int16_t *undoL,*undoR; uint16_t *undoGen, undoCur; int undoTrack, undoCount, undoLen; atomic_int undoReq;   /* gen stamp per sample: no memset at overdub start */
+    /* Tape stop / speed-up (Left / Right arrows): log2 speed, smoothed per sample */
+    int tapeHold; double tapeLs, tapeSpd, tapeGain;
     /* Input FX (record chain): full EQ + record tape speed */
     float inLow,inMid,inMidFreq,inHigh,inHighFreq;
     /* Tape menu (Capture button) — modelled on Magneto's Tape page */
@@ -287,7 +329,9 @@ static void session_scan_names(loopbox_t *s){
     char path[352];
     for(int n=1;n<=NUM_SLOTS;n++){ s->sio.names[n][0]=0;
         snprintf(path,sizeof path,"%s/slot%d/name.txt",SESS_DIR_BASE,n);
-        FILE *f=fopen(path,"r"); if(!f)continue;
+        FILE *f=fopen(path,"r");
+        if(!f){ snprintf(path,sizeof path,"%s/slot%d/state.txt",SESS_DIR_BASE,n);   /* saved before names existed: still a session */
+                FILE *g=fopen(path,"r"); if(g){ fclose(g); snprintf(s->sio.names[n],sizeof(s->sio.names[n]),"%02d_saved",n); } continue; }
         if(fgets(s->sio.names[n],(int)sizeof(s->sio.names[n]),f)){ size_t L=strlen(s->sio.names[n]);
             while(L&&(s->sio.names[n][L-1]=='\n'||s->sio.names[n][L-1]=='\r')) s->sio.names[n][--L]=0; }
         fclose(f); }
@@ -296,9 +340,19 @@ static void *session_worker(void *arg){
     loopbox_t *s=(loopbox_t*)arg;
     char dir[256],path[352];
     while(1){
-        while(!atomic_load(&s->sio.request)&&!atomic_load(&s->sio.cancel)) usleep(50000);
-        if(atomic_load(&s->sio.cancel)) break;
-        int req=atomic_exchange(&s->sio.request,0);
+        while(!atomic_load(&s->sio.request)&&!atomic_load(&s->sio.cancel)&&!atomic_load(&s->undoReq)
+              &&atomic_load(&s->fxSel[0])<0&&atomic_load(&s->fxSel[1])<0&&atomic_load(&s->fxSel[2])<0) usleep(20000);
+        if(atomic_load(&s->sio.cancel)) break;
+        /* Effect switches: pfx_select may allocate, so it runs here; the bus is muted meanwhile. */
+        for(int b=0;b<3;b++){ int id=atomic_exchange(&s->fxSel[b],-1); if(id<0)continue;
+            pfx_slot *sl=(b==0)?s->busA:(b==1)?s->busB:s->punchFx; if(!sl)continue;
+            atomic_store(&s->fxBusy[b],1); usleep(4000); pfx_select(sl,id); atomic_store(&s->fxBusy[b],0); }
+        /* Overdub undo: put the overwritten samples back (memcpy-sized, off the callback). */
+        if(atomic_exchange(&s->undoReq,0)){ int t=s->undoTrack;
+            if(t>=0&&t<NUM_VOICES&&s->undoCount>0&&s->voice[t].loopLen==s->undoLen){ Voice *v=&s->voice[t];
+                for(int i=0;i<s->undoLen;i++) if(s->undoGen[i]==s->undoCur){ v->bufferL[i]=s->undoL[i]; v->bufferR[i]=s->undoR[i]; } }
+            s->undoCount=0; s->undoTrack=-1; s->undoCur++; if(!s->undoCur)s->undoCur=1; }
+        int req=atomic_exchange(&s->sio.request,0); if(!req) continue;
         int slot=atomic_load(&s->sio.slot);
         atomic_store(&s->sio.busy,1);
         snprintf(dir,sizeof dir,"%s/slot%d",SESS_DIR_BASE,slot);
@@ -528,6 +582,7 @@ static double punch_slice_len(const PunchDef *d, const float *P, double beat){
 /* Start a slot on effect idx, using that effect's stored params (s->punchParams[idx]). */
 static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
     ps->idx=idx; ps->env=0.0; ps->releasing=0; const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
+    ps->elCur=0.0; ps->sliceStartT=-1.0; ps->pressSm=0.0; ps->dPow=ps->wPow=0.0; ps->mkGain=1.0;
     double beat=punch_beat();
     if(ps->gRng==0)ps->gRng=0x1234567u+(uint32_t)idx*2654435761u;
     if(d->mech==PM_REPEAT||d->mech==PM_REVERSE||d->mech==PM_GLIDE||d->mech==PM_CHOP){
@@ -540,16 +595,14 @@ static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
             int span=(int)beat; if(span>PUNCH_BUF-64)span=PUNCH_BUF-64; int best=0; float pk=0.0f;
             for(int j=0;j<span;j+=32){ int ix=(ps->w-1-j+PUNCH_BUF)%PUNCH_BUF; float a=ps->ringL[ix]; if(a<0)a=-a; if(a>pk){pk=a;best=j;} }
             int st2=(ps->w-1-best-160+PUNCH_BUF)%PUNCH_BUF; ps->sliceStart=(double)st2;   /* 160-sample pre-roll */
-            /* Rhythm from P1: a seeded 16-step pattern whose density follows the knob. */
-            uint32_t r=(uint32_t)((double)P[1]*997.0)*2654435761u+7u; ps->chopPat=0;
-            for(int b=0;b<16;b++){ r=1664525u*r+1013904223u; if(((r>>16)&255)<(uint32_t)(40+(double)P[1]*200.0)) ps->chopPat|=(1u<<b); }
-            ps->chopPat|=1u;   /* the downbeat always hits */
+            ps->chopIdx=(int)((double)P[1]*(NUM_CHOP_PAT-0.01)); if(ps->chopIdx<0)ps->chopIdx=0; if(ps->chopIdx>=NUM_CHOP_PAT)ps->chopIdx=NUM_CHOP_PAT-1;
         }
     }
+    else if(d->mech==PM_PALETTE){ memset(ps->poutL,0,sizeof ps->poutL); memset(ps->poutR,0,sizeof ps->poutR); }
     else if(d->mech==PM_PITCH){ ps->readPhase=2048.0; }   /* mid-window delay (2-head shifter) */
     else if(d->mech==PM_HAZE||d->mech==PM_STRETCH||d->mech==PM_MOSAIC||d->mech==PM_SMEAR||d->mech==PM_STRUM){
-        for(int i=0;i<4;i++)ps->gAct[i]=0; ps->gSched=0.0; ps->gIdx=0; ps->stGrid=(double)ps->w-4000.0; }
-    else if(d->mech==PM_SHIMMER){ ps->shR1=(double)ps->shW; ps->shFbL=ps->shFbR=0.0;
+        for(int i=0;i<4;i++)ps->gAct[i]=0; ps->gSched=1e12; ps->gIdx=0; ps->gPrime=1; ps->stGrid=(double)ps->w-4000.0; }   /* gSched primed: no wait before the first grain */
+    else if(d->mech==PM_SHIMMER){ ps->shR1=2048.0; ps->shFbL=ps->shFbR=0.0;
         memset(ps->shL,0,sizeof ps->shL); memset(ps->shR,0,sizeof ps->shR); }   /* stale buffer = burst/click on engage */
 }
 /* Re-tune slice geometry WITHOUT restarting the slot (keeps env + relative phase),
@@ -558,25 +611,90 @@ static void punch_slot_retune(loopbox_t *s, PunchSlot *ps, int idx){
     const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
     if(d->mech!=PM_REPEAT&&d->mech!=PM_REVERSE&&d->mech!=PM_GLIDE&&d->mech!=PM_CHOP) return;
     double sl=punch_slice_len(d,P,punch_beat());
-    double frac=(ps->sliceLen>1.0)?(ps->readPhase/ps->sliceLen):0.0;   /* keep relative position */
-    ps->sliceLen=sl;
-    if(d->mech!=PM_CHOP){ int st=(((int)ps->w-(int)sl)%PUNCH_BUF+PUNCH_BUF)%PUNCH_BUF; ps->sliceStart=(double)st; }
-    ps->readPhase=frac*sl;
-    if(ps->readPhase>=sl)ps->readPhase=sl-1.0; if(ps->readPhase<0.0)ps->readPhase=0.0;
+    ps->sliceLen=sl;   /* elCur picks this up at the next wrap (the slice edge is faded there) */
+    /* the ring is frozen while a slice mech holds, so w is still the capture end: end-anchored re-cut */
+    if(d->mech!=PM_CHOP){ int st=(((int)ps->w-(int)sl)%PUNCH_BUF+PUNCH_BUF)%PUNCH_BUF; ps->sliceStartT=(double)st; }
+}
+/* Slice mechs and a frozen Stretch read a snapshot: the ring stops writing while they
+ * hold, so a loop held longer than the 2 s ring is never overwritten under the head. */
+static inline int punch_holds_ring(const loopbox_t *s, const PunchSlot *ps){
+    if(ps->idx<0||ps->releasing) return 0;
+    int m=PUNCH_DEFS[ps->idx].mech;
+    if(m==PM_REPEAT||m==PM_REVERSE||m==PM_GLIDE||m==PM_CHOP) return 1;
+    if(m==PM_STRETCH){ const float *P=s->punchParams[ps->idx]; return ((1.0-(double)P[0])*(1.0-ps->pressSm))<0.02; }
+    return 0;
 }
 static void punch_on(loopbox_t *s, int idx){
     if(idx<0||idx>=NUM_PUNCH)return;
-    for(int i=0;i<4;i++) if(s->pslot[i].idx==idx){ punch_slot_start(s,&s->pslot[i],idx); return; }  /* retrigger (also un-releases) */
-    for(int i=0;i<4;i++) if(s->pslot[i].idx<0){ punch_slot_start(s,&s->pslot[i],idx); return; }      /* first free */
+    for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx){ punch_slot_start(s,&s->pslot[i],idx); return; }  /* retrigger (also un-releases) */
+    for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx<0){ punch_slot_start(s,&s->pslot[i],idx); return; }      /* first free */
 }
 static void punch_off(loopbox_t *s, int idx){
-    for(int i=0;i<4;i++) if(s->pslot[i].idx==idx){ s->pslot[i].releasing=1; return; }  /* fade out, freed in render */
+    for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx){ s->pslot[i].releasing=1; return; }  /* fade out, freed in render */
 }
 /* per-block: set each active slot's tone LP coeffs from its effect's Tone param */
 static void punch_prep(loopbox_t *s){
-    for(int i=0;i<4;i++){ PunchSlot *ps=&s->pslot[i]; if(ps->idx<0)continue; float t=s->punchParams[ps->idx][2];
+    for(int i=0;i<NUM_PSLOTS;i++){ PunchSlot *ps=&s->pslot[i]; if(ps->idx<0)continue; float t=s->punchParams[ps->idx][2];
         if(t<0.98f){ double cut=500.0*pow(18000.0/500.0,(double)t); bq_set_lp(&ps->toneFilt,cut,0.707); } }
 }
+
+static void fxseq_init(FxSeq *f){ memset(f,0,sizeof *f); f->speed=1; f->len=16; f->gate=1.0f; f->swing=0.5f; f->pos=-1; f->pingDir=1; f->gateTimer=-1; f->rng=0x5eedf00du; f->lastTrig=1; }
+static void fxseq_off_all(loopbox_t *s){
+    for(int p=0;p<NUM_PUNCH;p++) if(s->fx.seqHeld[p]){ s->fx.seqHeld[p]=0; if(!s->fx.userHeld[p]) punch_off(s,p); }
+}
+static int fxseq_peek(const FxSeq *f, int pos){   /* the step after `pos` in the current direction */
+    int len=f->len<1?1:f->len;
+    if(f->dir==1) return (pos-1+len)%len;
+    if(f->dir==2){ int n=pos+f->pingDir; if(n>=len)n=len>1?len-2:0; if(n<0)n=len>1?1:0; return n; }
+    return (pos+1)%len;
+}
+static void fxseq_next(FxSeq *f){
+    int len=f->len<1?1:f->len;
+    if(f->dir==3){ f->pos=(int)(PRND(f->rng)*len); if(f->pos>=len)f->pos=len-1; return; }
+    if(f->dir==2){ int n=f->pos+f->pingDir; if(n>=len){ f->pingDir=-1; n=len>1?len-2:0; } if(n<0){ f->pingDir=1; n=len>1?1:0; } f->pos=n; return; }
+    f->pos=fxseq_peek(f,f->pos<0?(f->dir==1?0:len-1):f->pos);
+    if(f->pos>=len)f->pos=0;
+}
+static int fxseq_chance(FxSeq *f, FxStep *st){
+    int c=st->chance, trig=1; st->cycles++;
+    if(c>=1&&c<=9)      trig=(PRND(f->rng)<(double)c*0.1);
+    else if(c==10)      trig=f->lastTrig;
+    else if(c==11)      trig=((st->cycles-1)%2)==0;    /* Play 1 Skip 1 */
+    else if(c==12)      trig=((st->cycles-1)%3)<2;     /* Play 2 Skip 1 */
+    else if(c==13)      trig=((st->cycles-1)%2)==1;    /* Skip 1 Play 1 */
+    f->lastTrig=trig; return trig;
+}
+static void fxseq_apply(loopbox_t *s, int idx){
+    FxSeq *f=&s->fx; FxStep *st=&f->st[idx];
+    if(st->ext){ f->gateTimer=-1; return; }                     /* extension: the previous step keeps holding */
+    int trig=(st->n>0)?fxseq_chance(f,st):0;
+    uint8_t keep[NUM_PUNCH]; memset(keep,0,sizeof keep);
+    if(trig) for(int k=0;k<st->n&&k<FXSEQ_MAXPADS;k++) keep[st->pad[k]&15]=1;
+    for(int p=0;p<NUM_PUNCH;p++) if(f->seqHeld[p]&&!keep[p]){ f->seqHeld[p]=0; if(!f->userHeld[p]) punch_off(s,p); }
+    if(trig) for(int k=0;k<st->n&&k<FXSEQ_MAXPADS;k++){ int p=st->pad[k]&15;
+        memcpy(s->punchParams[p],st->lock[k],sizeof st->lock[k]); s->punchPress[p]=st->press[k];
+        if(PUNCH_DEFS[p].mech==PM_PALETTE){ int id=(int)(st->lock[k][0]*(PFX_NUM-1)+0.5f); if(id<0)id=0; if(id>=PFX_NUM)id=PFX_NUM-1;
+            if(id!=s->punchFxId){ s->punchFxId=id; atomic_store(&s->fxSel[2],id); } }
+        if(!f->userHeld[p]) punch_on(s,p);                        /* retriggers a running one, as a finger would */
+        f->seqHeld[p]=1; }
+    int nextExt=f->st[fxseq_peek(f,idx)].ext;
+    f->gateTimer=(trig&&f->gate<0.99f&&!nextExt)?(int)((double)f->stepLen*(double)f->gate):-1;
+}
+static void fxseq_tick(loopbox_t *s, int frames){
+    FxSeq *f=&s->fx;
+    if(f->restart){ f->restart=0; f->pos=-1; f->pingDir=1; f->counter=0; f->odd=0; f->gateTimer=-1; f->lastTrig=1;
+        for(int i=0;i<FXSEQ_STEPS;i++) f->st[i].cycles=0; fxseq_off_all(s); }
+    if(!f->run){ fxseq_off_all(s); return; }
+    if(f->gateTimer>0){ f->gateTimer-=frames; if(f->gateTimer<=0){ f->gateTimer=-1; fxseq_off_all(s); } }
+    f->counter-=frames;
+    while(f->counter<=0){
+        double sl=punch_beat()*FXSEQ_DIV[f->speed]; f->stepLen=(int)sl;
+        fxseq_next(f); fxseq_apply(s,f->pos);
+        double sw=((double)f->swing-0.5)*2.0; int even=(f->odd==0); f->odd^=1;   /* swing: even steps long, odd short */
+        int d=(int)(sl*(even?(1.0+sw):(1.0-sw))); if(d<64)d=64; f->counter+=d;
+    }
+}
+
 /* Spawn a grain in the shared pool. rate<0 reads backwards. Returns the slot or -1. */
 static inline int punch_grain(PunchSlot *ps, double pos, double dur, double rate, double pan){
     for(int i=0;i<4;i++) if(!ps->gAct[i]){ ps->gAct[i]=1; ps->gAge[i]=0.0; ps->gDur[i]=dur; ps->gRate[i]=rate; ps->gPos[i]=pos;
@@ -593,72 +711,92 @@ static inline void punch_grains_out(PunchSlot *ps, double *sl, double *sr){
 }
 /* per-sample: one slot reads its own ring and produces wet (ring already written by caller).
  * Pressure (s->punchPress) drives each effect's most musical parameter — see the UI map. */
-static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, double *outL, double *outR){
+static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double *outL, double *outR){
     const PunchDef *d=&PUNCH_DEFS[ps->idx]; float *P=s->punchParams[ps->idx]; int toneOn=(P[2]<0.98f);
-    double press=(double)s->punchPress[ps->idx];
-    double pm=pow(2.0,((double)P[1]-0.5)*2.0);
+    if(d->mech==PM_PALETTE){   /* one Palette effect as a punch: this block in, last block out */
+        ps->pinL[n]=ps->ringL[ps->w]; ps->pinR[n]=ps->ringR[ps->w];
+        *outL=(double)ps->poutL[n]; *outR=(double)ps->poutR[n]; return; }
+    ps->pressSm+=((double)s->punchPress[ps->idx]-ps->pressSm)*0.002;   /* ~11 ms */
+    double press=ps->pressSm;
+    double pm=(d->mech==PM_CHOP)?1.0:pow(2.0,((double)P[1]-0.5)*2.0);   /* Chop: knob 2 is the pattern, not pitch */
     if(d->mech==PM_HAZE||d->mech==PM_SMEAR){   /* granular clouds: P0=Size P1=Pitch P2=Density; pressure = density */
         int smear=(d->mech==PM_SMEAR);
         double dur =smear?((0.15+(double)P[0]*0.65)*SR):((0.03+(double)P[0]*0.4)*SR);
         double dens=(smear?(1.0+(double)P[2]*12.0):(2.0+(double)P[2]*40.0))*(1.0+press*3.0);
         double pr=pm;
         ps->gSched+=dens/SR;
-        if(ps->gSched>=1.0){ ps->gSched-=1.0;
-            double back=dur*1.5+PRND(ps->gRng)*dur*3.0; double pos=(double)ps->w-back;
+        if(ps->gSched>=1.0){ ps->gSched-=1.0; if(ps->gSched>1.0)ps->gSched=0.0;
+            double back=dur*(0.5+(pr>1.0?pr:1.0))+PRND(ps->gRng)*dur*3.0; double pos=(double)ps->w-back;   /* room for the whole read, even pitched up */
             double pan=(PRND(ps->gRng)*2.0-1.0)*(smear?0.9:0.6);
             double rate=pr; if(smear&&PRND(ps->gRng)<0.5){ rate=-pr; pos+=dur*rate*-1.0; }   /* reversed grains land ahead of their read */
-            punch_grain(ps,pos,dur,rate,pan); }
+            punch_grain(ps,pos,dur,rate,pan);
+            if(ps->gPrime){ ps->gPrime=0;   /* engage: a second grain already at full window so the cloud is audible at once */
+                int gi=punch_grain(ps,pos-dur*0.5*rate,dur,rate,-pan); if(gi>=0)ps->gAge[gi]=dur*0.5; } }
         double sl,sr; punch_grains_out(ps,&sl,&sr);
         double g=smear?0.8:0.9; *outL=sl*g; *outR=sr*g; return; }
     if(d->mech==PM_MOSAIC){   /* grid-synced re-sequencer: P0=Grid P1=Pitch P2=Var; pressure = grid x2 */
         double beat=punch_beat(); int dv=1<<(int)((double)P[0]*3.99); double grid=beat/(double)dv;
         if(press>0.5)grid*=0.5;
         ps->gSched+=1.0;
-        if(ps->gSched>=grid){ ps->gSched-=grid;
+        if(ps->gSched>=grid){ ps->gSched-=grid; if(ps->gSched>grid)ps->gSched=0.0;
             double var=(double)P[2];
             int cell=1+(int)(PRND(ps->gRng)*(1.0+var*7.0));            /* which earlier grid cell to quote */
             double pos=(double)ps->w-(double)cell*grid;
             if(var>0.0) pos-=PRND(ps->gRng)*grid*var*0.5;
             double rate=(PRND(ps->gRng)<var*0.6)?-pm:pm;
             if(rate<0) pos+=grid;                                     /* read backwards from the cell end */
+            { double need=grid*0.95*(rate>0?rate:0.0)+64.0; if((double)ps->w-pos<need) pos=(double)ps->w-need; }   /* stay behind the write head */
             double pan=(ps->gIdx&1)?0.6:-0.6; ps->gIdx++;
-            punch_grain(ps,pos,grid*0.95,rate,pan); }
+            punch_grain(ps,pos,grid*0.95,rate,pan);
+            if(ps->gPrime){ ps->gPrime=0; int gi=punch_grain(ps,pos-grid*0.475*rate,grid*0.95,rate,-pan); if(gi>=0)ps->gAge[gi]=grid*0.475; } }
         double sl,sr; punch_grains_out(ps,&sl,&sr); *outL=sl; *outR=sr; return; }
     if(d->mech==PM_STRUM){   /* arpeggiated grain cascade: P0=Rate P1=Dir/Range P2=Tone; pressure = faster + wider */
         double ivl=(0.06+(1.0-(double)P[0])*0.4)*SR*(1.0-press*0.6);
         ps->gSched+=1.0;
-        if(ps->gSched>=ivl){ ps->gSched-=ivl;
+        if(ps->gSched>=ivl){ ps->gSched-=ivl; if(ps->gSched>ivl)ps->gSched=0.0;
             static const double up[4]={0,7,12,19}, dn[4]={0,-5,-12,-17};
             int k=ps->gIdx&3; double semis=((double)P[1]>=0.5)?up[k]:dn[k];
             if(press>0.7) semis+=((double)P[1]>=0.5)?12.0:-12.0;
             double rate=pow(2.0,semis/12.0);
             double pos=(double)ps->w-ivl*2.0-200.0; if(rate>1.0) pos-=ivl*rate;   /* faster reads need more room */
             double pan=-0.7+(double)k/3.0*1.4;
-            punch_grain(ps,pos,ivl*1.6,rate,pan); ps->gIdx++; }
+            punch_grain(ps,pos,ivl*1.6,rate,pan); ps->gIdx++;
+            if(ps->gPrime){ ps->gPrime=0; int gi=punch_grain(ps,pos-ivl*0.8*rate,ivl*1.6,rate,pan); if(gi>=0)ps->gAge[gi]=ivl*0.8; } }
         double sl,sr; punch_grains_out(ps,&sl,&sr);
         if(toneOn){ sl=bq_L(&ps->toneFilt,sl); sr=bq_R(&ps->toneFilt,sr); } *outL=sl; *outR=sr; return; }
     if(d->mech==PM_STRETCH){   /* 2-grain OLA stretch/freeze: P0=stretch(1=freeze) P1=Pitch P2=Grain; pressure = toward freeze */
         double dur=(0.04+(double)P[2]*0.3)*SR, pr=pm, srate=(1.0-(double)P[0])*(1.0-press);
         ps->stGrid+=srate;
-        for(int i=0;i<2;i++){ if(!ps->gAct[i]||ps->gAge[i]>=ps->gDur[i]){ ps->gAct[i]=1; ps->gAge[i]=(i==1)?(-dur*0.5):0.0; ps->gDur[i]=dur; ps->gPos[i]=ps->stGrid; } }
-        double sl=0.0,sr=0.0,wsum=0.0;
-        for(int i=0;i<2;i++){ double a=ps->gAge[i]; if(a<0.0){ps->gAge[i]+=1.0;continue;} double wph=a/ps->gDur[i]; if(wph>=1.0){ps->gAct[i]=0;continue;}
-            double win=0.5-0.5*cos(TWOPI*wph), rp=ps->gPos[i]+a*pr;
-            sl+=(double)ring_read(ps->ringL,rp)*win; sr+=(double)ring_read(ps->ringR,rp)*win; wsum+=win; ps->gAge[i]+=1.0; }
-        double n=(wsum>0.01)?1.0/wsum:1.0; *outL=sl*n; *outR=sr*n; return; }
-    if(d->mech==PM_SHIMMER){   /* 2-head pitch-shift in band-limited feedback: P0=Regen P1=Pitch P2=Tone; pressure = regen */
-        double ratio=1.0+(double)P[1], regen=(double)P[0]*0.6+press*0.35; if(regen>0.95)regen=0.95;
+        { double ahead=fmod((double)ps->w-ps->stGrid,(double)PUNCH_BUF); if(ahead<0)ahead+=PUNCH_BUF;   /* keep the grain span behind the head */
+          double need=dur*(pr>1.0?pr:1.0)+256.0; if(ahead<need) ps->stGrid=(double)ps->w-need; }
+        /* Two Hann grains at 50% overlap sum to exactly 1, so no normaliser: the old
+         * 1/wsum boosted a lone grain edge ~90x (a click), and grain 2 used to rest
+         * for half a window after every pass, leaving grain 1 alone half the time. */
+        for(int i=0;i<2;i++){ if(!ps->gAct[i]||ps->gAge[i]>=ps->gDur[i]){ ps->gAct[i]=1; ps->gDur[i]=dur;
+            ps->gRate[i]=pr;   /* latched: a Pitch turn takes effect at the next grain, never mid-read */
+            if(i==1&&ps->gPrime){ ps->gAge[i]=dur*0.5; ps->gPos[i]=ps->stGrid-dur*0.5*pr; }   /* engage: already mid-window */
+            else { ps->gAge[i]=0.0; ps->gPos[i]=ps->stGrid; } } }
+        ps->gPrime=0;
+        double sl=0.0,sr=0.0;
+        for(int i=0;i<2;i++){ double a=ps->gAge[i]; double wph=a/ps->gDur[i]; if(wph>=1.0){ps->gAct[i]=0;continue;}
+            double win=0.5-0.5*cos(TWOPI*wph), rp=ps->gPos[i]+a*ps->gRate[i];
+            sl+=(double)ring_read(ps->ringL,rp)*win; sr+=(double)ring_read(ps->ringR,rp)*win; ps->gAge[i]+=1.0; }
+        *outL=sl; *outR=sr; return; }
+    if(d->mech==PM_SHIMMER){   /* octave-up shifter in band-limited feedback: P0=Regen P1=Pitch (0.5 = +1 oct) P2=Tone; pressure = regen */
+        double ratio=pow(2.0,(double)P[1]*2.0), regen=(double)P[0]*0.85+press*0.3; if(regen>0.95)regen=0.95;
         double inL=(double)ps->ringL[ps->w]+ps->shFbL, inR=(double)ps->ringR[ps->w]+ps->shFbR;
         ps->shL[ps->shW]=(float)inL; ps->shR[ps->shW]=(float)inR;
-        ps->shR1+=ratio; while(ps->shR1>=SHBUF)ps->shR1-=SHBUF; while(ps->shR1<0)ps->shR1+=SHBUF;
-        double r2=ps->shR1+SHBUF/2; if(r2>=SHBUF)r2-=SHBUF;
-        double g1=(double)ps->shW-ps->shR1; if(g1<0)g1+=SHBUF; double g2=(double)ps->shW-r2; if(g2<0)g2+=SHBUF;
-        double a=0.5-0.5*cos(TWOPI*g1/SHBUF), b=0.5-0.5*cos(TWOPI*g2/SHBUF), ab=a+b+1e-6;
-        double l=((double)buf_read(ps->shL,ps->shR1,SHBUF)*a+(double)buf_read(ps->shL,r2,SHBUF)*b)/ab;
-        double r=((double)buf_read(ps->shR,ps->shR1,SHBUF)*a+(double)buf_read(ps->shR,r2,SHBUF)*b)/ab;
+        /* same 2-head Hann-crossfaded delay-line shifter as Oct+/Oct-, on the feedback buffer */
+        const double W=4096.0;
+        ps->shR1+=(1.0-ratio); while(ps->shR1>=W)ps->shR1-=W; while(ps->shR1<0)ps->shR1+=W;
+        double d1=ps->shR1, d2=d1+W*0.5; if(d2>=W)d2-=W;
+        double w1=0.5-0.5*cos(TWOPI*d1/W), w2=0.5-0.5*cos(TWOPI*d2/W), ws=w1+w2+1e-9;
+        double rp1=(double)ps->shW-d1, rp2=(double)ps->shW-d2;
+        double l=((double)buf_read(ps->shL,rp1,SHBUF)*w1+(double)buf_read(ps->shL,rp2,SHBUF)*w2)/ws;
+        double r=((double)buf_read(ps->shR,rp1,SHBUF)*w1+(double)buf_read(ps->shR,rp2,SHBUF)*w2)/ws;
         ps->shW++; if(ps->shW>=SHBUF)ps->shW=0;
         double fl=l,fr=r; if(toneOn){ fl=bq_L(&ps->toneFilt,fl); fr=bq_R(&ps->toneFilt,fr); }
-        ps->shFbL=lb_tanh(fl*regen); ps->shFbR=lb_tanh(fr*regen);
+        ps->shFbL=lb_tanh(fl*regen); ps->shFbR=lb_tanh(fr*regen);   /* each pass climbs another interval: the shimmer */
         *outL=l; *outR=r; return; }
     if(d->mech==PM_PITCH){   /* delay-line pitch shift: 2 heads a half-window apart, Hann-crossfaded (click-free) */
         double ratio=d->param*pm*(1.0+((double)P[0]-0.5)*0.1);
@@ -671,30 +809,39 @@ static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, double *outL,
         double r=((double)ring_read(ps->ringR,rp1)*w1+(double)ring_read(ps->ringR,rp2)*w2)/ws;
         if(toneOn){ l=bq_L(&ps->toneFilt,l); r=bq_R(&ps->toneFilt,r); } *outL=l; *outR=r; return; }
     /* ---- slice-based mechs: REPEAT / REVERSE / GLIDE / CHOP (all autopanned to their cycle) ---- */
-    double pos, gate=1.0, bf=1.0, el=ps->sliceLen; const double FD=64.0;
-    if(d->mech==PM_REPEAT){          /* pressure subdivides the loop: 1/1 -> 1/2 -> 1/4 */
-        el=ps->sliceLen*pow(0.5,floor(press*2.99)); if(el<128.0)el=128.0;
+    /* Target slice length from the knob + pressure; the length IN USE (elCur) only
+     * changes when a slice wraps, where the edge fade already sits at zero - so
+     * pressure sweeps the repeat rate continuously (no stairs) and never mid-slice. */
+    double elT=ps->sliceLen;
+    if(d->mech==PM_REPEAT)       elT=ps->sliceLen*pow(0.5,press*2.0);       /* 1/1 .. 1/4, continuous */
+    else if(d->mech==PM_REVERSE) elT=ps->sliceLen*(1.0-press*0.6);
+    else if(d->mech==PM_CHOP)    elT=ps->sliceLen*(press>0.5?0.5:1.0);      /* rhythmic: stays on the grid */
+    if(elT<128.0)elT=128.0;
+    if(ps->elCur<=0.0)ps->elCur=elT;
+    double pos, gate=1.0, bf=1.0, el=ps->elCur;
+    #define PUNCH_LATCH() do{ ps->elCur=elT; el=elT; if(ps->sliceStartT>=0.0){ ps->sliceStart=ps->sliceStartT; ps->sliceStartT=-1.0; } }while(0)
+    if(d->mech==PM_REPEAT){
         pos=ps->sliceStart+ps->readPhase; ps->readPhase+=pm;
-        while(ps->readPhase>=el)ps->readPhase-=el; while(ps->readPhase<0)ps->readPhase+=el; }
-    else if(d->mech==PM_REVERSE){    /* pressure shortens the slice */
-        el=ps->sliceLen*(1.0-press*0.6); if(el<128.0)el=128.0;
-        if(ps->readPhase>=el)ps->readPhase=el-1.0;
+        if(ps->readPhase>=el){ ps->readPhase-=el; PUNCH_LATCH(); while(ps->readPhase>=el)ps->readPhase-=el; } }
+    else if(d->mech==PM_REVERSE){
         pos=ps->sliceStart+ps->readPhase; ps->readPhase-=pm;
-        while(ps->readPhase<0)ps->readPhase+=el; while(ps->readPhase>=el)ps->readPhase-=el; }
+        if(ps->readPhase<0){ PUNCH_LATCH(); ps->readPhase+=el; while(ps->readPhase<0)ps->readPhase+=el; if(ps->readPhase>=el)ps->readPhase=el-1.0; } }
     else if(d->mech==PM_GLIDE){      /* each repeat re-pitches: P1 = down/up, pressure = harder glide */
         pos=ps->sliceStart+ps->readPhase; ps->readPhase+=pm*ps->glRate;
-        if(ps->readPhase>=el||ps->readPhase<0){
-            ps->readPhase=(ps->readPhase>=el)?(ps->readPhase-el):(ps->readPhase+el);
+        if(ps->readPhase>=el){
+            ps->readPhase-=el; PUNCH_LATCH(); while(ps->readPhase>=el)ps->readPhase-=el;
             double amt=((double)P[1]-0.5)*(0.5+press*1.0);              /* -0.75..+0.75 per cycle */
             ps->glRate*=pow(2.0,amt*0.5); ps->glCycle++;
             if(ps->glRate<0.2||ps->glRate>5.0||ps->glCycle>=8){ ps->glRate=1.0; ps->glCycle=0; } } }
     else {                           /* CHOP: repeat the last hit on a seeded pattern; pressure doubles the rate */
-        if(press>0.5) el=ps->sliceLen*0.5;
         pos=ps->sliceStart+ps->readPhase; ps->readPhase+=pm;
-        if(ps->readPhase>=el){ ps->readPhase-=el; ps->chopStep++; }
-        gate=((ps->chopPat>>(ps->chopStep&15))&1u)?1.0:0.0;
+        if(ps->readPhase>=el){ ps->readPhase-=el; PUNCH_LATCH(); while(ps->readPhase>=el)ps->readPhase-=el; ps->chopStep++; }
+        { int ci=(int)((double)P[1]*(NUM_CHOP_PAT-0.01)); if(ci<0)ci=0; if(ci>=NUM_CHOP_PAT)ci=NUM_CHOP_PAT-1; ps->chopIdx=ci; }   /* Patrn knob, live */
+        gate=CHOP_PAT[ps->chopIdx][ps->chopStep&15]?1.0:0.0;
         double gp=ps->readPhase/el; if(gp>0.85)gate*=(1.0-gp)/0.15;     /* short tail so hits stay separate */ }
-    double e=ps->readPhase<el-ps->readPhase?ps->readPhase:el-ps->readPhase; if(e<FD)bf=e/FD;   /* fade slice edges */
+    #undef PUNCH_LATCH
+    double FD=el*0.25; if(FD>192.0)FD=192.0;                                 /* edge fade: up to ~4 ms */
+    double e=ps->readPhase<el-ps->readPhase?ps->readPhase:el-ps->readPhase; if(e<FD)bf=e/FD;
     double l=(double)ring_read(ps->ringL,pos)*gate*bf, r=(double)ring_read(ps->ringR,pos)*gate*bf;
     double cyc=ps->readPhase/el; if(d->mech==PM_CHOP) cyc=(double)(ps->chopStep&1);   /* chop: alternate L/R per hit */
     punch_autopan(cyc,0.7,&l,&r);
@@ -720,7 +867,7 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
     int effLen=(int)(v->loopEnd*(float)avail); if(effLen<256)effLen=256; if(effLen>avail)effLen=avail;
     int effEnd=effStart+effLen;
     double vcs=clock_to_speed(v->clock);
-    double rate=pow(2.0,(double)v->pitch)*vcs;if(v->reverse>0.5f)rate=-rate;
+    double rate=pow(2.0,(double)v->pitch)*vcs*s->tapeSpd;if(v->reverse>0.5f)rate=-rate;
     if(s->scanTimer>0)rate*=3.5;   /* Perform: Scan gesture (fast sweep) */
     if(scrubbing){ rate=v->scrubRate; v->scrubTimer--; }   /* jog rocks the tape, audibly */
     /* head 0 mode/speed */
@@ -813,6 +960,7 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
         v->ckCnt++; if(v->ckCnt>=df){ v->ckHoldL=sL; v->ckHoldR=sR; v->ckCnt=0; } sL=v->ckHoldL; sR=v->ckHoldR;
         double degr=1.0-vcs, nA=degr*degr*0.012; sL+=lb_rand(&v->rng)*nA; sR+=lb_rand(&v->rng)*nA; }
     master_comp(&sL,&sR,(double)v->comp,&v->cEnvL,&v->cEnvR);
+    sL*=s->tapeGain; sR*=s->tapeGain;
     v->volSm+=((double)v->volume-v->volSm)*0.00227;   /* ~10ms smoothing (no zipper) */
     v->panSm+=((double)v->pan   -v->panSm)*0.00227;
     double vol=v->volSm*_amp,pn=v->panSm;   /* _amp = click-free env x boundary fade */
@@ -922,11 +1070,17 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     s->globalWowFlut=0.0f;s->inputMonitor=0.75f;s->inputGain=1.0f;s->gFlutNextMax=0.5;
     bq_reset(&s->masterLo);bq_reset(&s->masterHi);
     s->cpuPct=0.0; s->rootNote=60;   /* C3 plays the loop at its recorded speed */
-    for(int i=0;i<4;i++){s->pslot[i].idx=-1;bq_reset(&s->pslot[i].toneFilt);}
+    for(int i=0;i<NUM_PSLOTS;i++){s->pslot[i].idx=-1;bq_reset(&s->pslot[i].toneFilt);}
     for(int i=0;i<NUM_PUNCH;i++){s->punchParams[i][0]=0.5f;s->punchParams[i][1]=0.5f;s->punchParams[i][2]=1.0f;s->punchParams[i][3]=1.0f;s->punchPress[i]=0.0f;}
     s->inLow=0.0f;s->inMid=0.0f;s->inMidFreq=0.5f;s->inHigh=0.0f;s->inHighFreq=0.5f;
     bq_reset(&s->inEqLo);bq_reset(&s->inEqMid);bq_reset(&s->inEqHi);bq_reset(&s->inTapeLp);bq_reset(&s->inTapeHp);
-    s->busA=pfx_create(44100.0f); s->busB=pfx_create(44100.0f); s->limEnv=0.0;
+    s->busA=pfx_create(44100.0f); s->busB=pfx_create(44100.0f); s->punchFx=pfx_create(44100.0f); s->limEnv=0.0;
+    if(s->punchFx)pfx_select(s->punchFx,17);   /* Space */
+    for(int i=0;i<3;i++){ atomic_store(&s->fxSel[i],-1); atomic_store(&s->fxBusy[i],0); }
+    s->undoL=(int16_t*)calloc(LOOP_SAMPLES,sizeof(int16_t)); s->undoR=(int16_t*)calloc(LOOP_SAMPLES,sizeof(int16_t));
+    s->undoGen=(uint16_t*)calloc(LOOP_SAMPLES,sizeof(uint16_t)); s->undoCur=1; s->undoTrack=-1; atomic_store(&s->undoReq,0);
+    s->tapeHold=0; s->tapeLs=0.0; s->tapeSpd=1.0; s->tapeGain=1.0;
+    fxseq_init(&s->fx); s->punchFxId=17;
     s->sendAType=14;s->sendBType=17;s->sendAM1=0.4f;s->sendAM2=0.5f;s->sendADrift=0.2f;s->sendBM1=0.5f;s->sendBM2=0.5f;s->sendBDrift=0.2f;
     if(s->busA)pfx_select(s->busA,s->sendAType); if(s->busB)pfx_select(s->busB,s->sendBType);
     s->stMix=0.0f;s->stStep=0.3f;s->stOdds=0.5f;s->stSize=0.5f;s->stReach=0.3f;s->stKind=0;s->stStepLeft=1;s->stRng=0x2233aa55u;
@@ -952,7 +1106,8 @@ static void destroy_instance(void *inst){loopbox_t *s=(loopbox_t*)inst;if(!s)ret
     if(s->sio.active){ atomic_store(&s->sio.cancel,1); atomic_store(&s->sio.request,1); /* wake */
         pthread_join(s->sio.th,NULL); s->sio.active=0; }   /* join BEFORE freeing buffers */
     for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);}
-    if(s->busA)pfx_destroy(s->busA); if(s->busB)pfx_destroy(s->busB); free(s);}
+    if(s->busA)pfx_destroy(s->busA); if(s->busB)pfx_destroy(s->busB); if(s->punchFx)pfx_destroy(s->punchFx);
+    free(s->undoL); free(s->undoR); free(s->undoGen); free(s);}
 
 /* ---- MIDI Handler ---- */
 static void on_midi(void *inst, const uint8_t *msg, int len, int source) {
@@ -1077,8 +1232,17 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     if(s->scanTimer>0){ s->scanTimer-=frames; if(s->scanTimer<0)s->scanTimer=0; }
     input_eq_update(s);   /* record-chain EQ + tape-speed */
     punch_prep(s);   /* per-block: punch slot tone-filter coeffs */
+    fxseq_tick(s,frames);   /* FX sequencer: step clock, chance, gate */
 
-    for(int n=0;n<frames;n++){
+    for(int n=0;n<frames;n++){
+        /* Tape transport gesture: Left brakes to a stop (~3 s), Right winds up to a tone (~2.5 s),
+         * release eases back to 1x. Linear in log2(speed) = a constant glide in semitones. */
+        { const double LS_MIN=-9.0, LS_MAX=5.0;
+          if(s->tapeHold<0){ s->tapeLs-=3.0/SR; if(s->tapeLs<LS_MIN)s->tapeLs=LS_MIN; }
+          else if(s->tapeHold>0){ s->tapeLs+=2.0/SR; if(s->tapeLs>LS_MAX)s->tapeLs=LS_MAX; }
+          else if(s->tapeLs!=0.0){ s->tapeLs+=(0.0-s->tapeLs)*(1.0/(SR*0.35)); if(fabs(s->tapeLs)<1e-4)s->tapeLs=0.0; }
+          s->tapeSpd=(s->tapeLs==0.0)?1.0:exp2(s->tapeLs);
+          double g=(s->tapeLs+9.0)/3.0; s->tapeGain=(g<0.0)?0.0:(g>1.0)?1.0:g; }   /* the last three octaves fade out */
         double inL=0.0,inR=0.0;
         if(micBuf){double ig=(double)s->inputGain;inL=(double)micBuf[n*2]/32768.0*ig;inR=(double)micBuf[n*2+1]/32768.0*ig;
             double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR;}
@@ -1105,7 +1269,10 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         for(int vi=0;vi<NUM_VOICES;vi++){Voice *v=&s->voice[vi];
             if(v->state==VS_RECORDING){if(v->recHead<LOOP_SAMPLES){v->bufferL[v->recHead]=inSL;v->bufferR[v->recHead]=inSR;v->recHead++;}
                 if(v->recHead>=LOOP_SAMPLES){v->loopLen=LOOP_SAMPLES;v->playHead=0;v->playPhase=0.0;v->state=VS_PLAYING;}}
-            else if(v->state==VS_OVERDUBBING&&v->playHead<v->loopLen){switch(odMode){
+            else if(v->state==VS_OVERDUBBING&&v->playHead<v->loopLen){
+                if(s->undoTrack==vi&&s->undoLen==v->loopLen){ int ui=v->playHead;   /* save the original before it is overwritten (once per sample) */
+                    if(s->undoGen[ui]!=s->undoCur){ s->undoL[ui]=v->bufferL[ui]; s->undoR[ui]=v->bufferR[ui]; s->undoGen[ui]=s->undoCur; s->undoCount++; } }
+                switch(odMode){
                 case OD_REPLACE:v->bufferL[v->playHead]=inSL;v->bufferR[v->playHead]=inSR;break;
                 case OD_MULTIPLY:{double oL=(double)v->bufferL[v->playHead]/32768.0,oR=(double)v->bufferR[v->playHead]/32768.0;
                     double dg=0.5+(double)v->decay*0.5;
@@ -1135,12 +1302,21 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         dropout_sample(s,&mixL,&mixR);
         /* Punch-in FX: up to 4 slots in series, each with its own capture ring */
         { double xl=mixL,xr=mixR;
-          for(int si=0;si<4;si++){ PunchSlot *ps=&s->pslot[si];
+          for(int si=0;si<NUM_PSLOTS;si++){ PunchSlot *ps=&s->pslot[si];
               if(ps->idx<0){ ps->ringL[ps->w]=(float)mixL; ps->ringR[ps->w]=(float)mixR; }   /* idle: cache dry master */
-              else { ps->ringL[ps->w]=(float)xl; ps->ringR[ps->w]=(float)xr;                  /* active: capture chain input */
-                  double wl,wr; punch_slot_process(s,ps,&wl,&wr);
-                  ps->env += ((ps->releasing?0.0:1.0)-ps->env)*0.02;   /* ~2ms click-free fade */
-                  float *P=s->punchParams[ps->idx]; double em=((double)P[3]+(1.0-(double)P[3])*(double)s->punchPress[ps->idx])*ps->env; if(em>1.0)em=1.0;
+              else { int hold=punch_holds_ring(s,ps);
+                  if(!hold){ ps->ringL[ps->w]=(float)xl; ps->ringR[ps->w]=(float)xr; }         /* active: capture chain input */
+                  double wl,wr; punch_slot_process(s,ps,n,&wl,&wr);
+                  /* Loudness match: windowed grains, gated hits and slice fades all lose level
+                   * against the dry signal. Track both powers (~100 ms) and make the wet up,
+                   * never down, capped so gated effects do not get pumped into hits. */
+                  ps->dPow+=(xl*xl+xr*xr-ps->dPow)*2.2e-4; ps->wPow+=(wl*wl+wr*wr-ps->wPow)*2.2e-4;
+                  { double tg=1.0; if(ps->wPow>1e-7&&ps->dPow>1e-7){ tg=sqrt(ps->dPow/ps->wPow);
+                        double cap=(PUNCH_DEFS[ps->idx].mech==PM_CHOP)?1.4:2.5; if(tg>cap)tg=cap; if(tg<1.0)tg=1.0; }
+                    ps->mkGain+=(tg-ps->mkGain)*0.002; wl*=ps->mkGain; wr*=ps->mkGain; }
+                  if(hold){ ps->w--; if(ps->w<0)ps->w=PUNCH_BUF-1; }                          /* net: w stays put while holding */
+                  ps->env += ((ps->releasing?0.0:1.0)-ps->env)*0.003;  /* ~7ms engage/release fade (1ms clicked on gated FX) */
+                  float *P=s->punchParams[ps->idx]; double em=(PUNCH_DEFS[ps->idx].mech==PM_PALETTE)?ps->env:((double)P[3]+(1.0-(double)P[3])*(double)s->punchPress[ps->idx])*ps->env; if(em>1.0)em=1.0;
                   xl=xl+(wl-xl)*em; xr=xr+(wr-xr)*em;
                   if(ps->releasing && ps->env<0.004) ps->idx=-1; }
               ps->w++; if(ps->w>=PUNCH_BUF)ps->w=0; }
@@ -1151,10 +1327,18 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         out_interleaved_lr[n*2+1]=(int16_t)lb_clampd(mixR*32767.0,-32767.0,32767.0);
     }
     /* Process the two Palette send buses over the whole block (result feeds the next block) */
-    if(s->busA){ pfx_process(s->busA,s->sbufAL,s->sbufAR,frames,s->sendAM1,s->sendAM2,s->sendADrift);
+    if(s->busA&&!atomic_load(&s->fxBusy[0])){ pfx_process(s->busA,s->sbufAL,s->sbufAR,frames,s->sendAM1,s->sendAM2,s->sendADrift);
         memcpy(s->sretAL,s->sbufAL,(size_t)frames*sizeof(float)); memcpy(s->sretAR,s->sbufAR,(size_t)frames*sizeof(float)); }
-    if(s->busB){ pfx_process(s->busB,s->sbufBL,s->sbufBR,frames,s->sendBM1,s->sendBM2,s->sendBDrift);
+    else { memset(s->sretAL,0,(size_t)frames*sizeof(float)); memset(s->sretAR,0,(size_t)frames*sizeof(float)); }
+    if(s->busB&&!atomic_load(&s->fxBusy[1])){ pfx_process(s->busB,s->sbufBL,s->sbufBR,frames,s->sendBM1,s->sendBM2,s->sendBDrift);
         memcpy(s->sretBL,s->sbufBL,(size_t)frames*sizeof(float)); memcpy(s->sretBR,s->sbufBR,(size_t)frames*sizeof(float)); }
+    else { memset(s->sretBL,0,(size_t)frames*sizeof(float)); memset(s->sretBR,0,(size_t)frames*sizeof(float)); }
+    /* Palette punch slot: process the block it captured, ready for the next one */
+    for(int si=0;si<NUM_PSLOTS;si++){ PunchSlot *ps=&s->pslot[si]; if(ps->idx<0||PUNCH_DEFS[ps->idx].mech!=PM_PALETTE)continue;
+        memcpy(ps->poutL,ps->pinL,sizeof ps->poutL); memcpy(ps->poutR,ps->pinR,sizeof ps->poutR);
+        float *P=s->punchParams[ps->idx]; float amt=P[1]+(1.0f-P[1])*s->punchPress[ps->idx];   /* pressure pushes Amount */
+        if(s->punchFx&&!atomic_load(&s->fxBusy[2])) pfx_process(s->punchFx,ps->poutL,ps->poutR,frames,amt,P[2],P[3]);
+        else { memset(ps->poutL,0,sizeof ps->poutL); memset(ps->poutR,0,sizeof ps->poutR); } }
 
     /* Decay input peak meters (~50ms decay) */
     s->inputPeakL*=0.95;s->inputPeakR*=0.95;
@@ -1193,7 +1377,8 @@ static void voice_tap(loopbox_t *s, int vi) {
 static void voice_odub(loopbox_t *s, int vi) {
     if(vi<0||vi>=NUM_VOICES)return; Voice *v=&s->voice[vi]; s->selTrack=vi+1;
     switch(v->state){
-    case VS_PLAYING: case VS_PAUSED: v->state=VS_OVERDUBBING; v->recHead=v->playHead; break;
+    case VS_PLAYING: case VS_PAUSED: v->state=VS_OVERDUBBING; v->recHead=v->playHead;
+        s->undoCur++; if(!s->undoCur)s->undoCur=1; s->undoTrack=vi; s->undoCount=0; s->undoLen=v->loopLen; break;   /* fresh undo point */
     case VS_OVERDUBBING: if((int)s->overdubMode==OD_DISINTEGRATION)voice_disintegrate_pass(v); v->state=VS_PLAYING; break;
     case VS_RECORDING: v->loopLen=v->recHead; v->playHead=0; v->playPhase=0.0; v->state=VS_PLAYING; break;
     default: break;
@@ -1230,6 +1415,8 @@ static void set_param(void *inst, const char *key, const char *val) {
         else if(strncmp(val,"odub",4)==0)  voice_odub(s,vi);
         else if(strncmp(val,"clear",5)==0){ if(vi>=0&&vi<NUM_VOICES)voice_clear(&s->voice[vi]); }
         else if(strncmp(val,"unclr",5)==0){ if(vi>=0&&vi<NUM_VOICES)voice_unclear(&s->voice[vi]); }
+        else if(strncmp(val,"undo",4)==0){ int t=s->undoTrack;   /* revert the last overdub */
+            if(t>=0&&t<NUM_VOICES&&s->undoCount>0){ Voice *v=&s->voice[t]; if(v->state==VS_OVERDUBBING)v->state=VS_PLAYING; atomic_store(&s->undoReq,1); } }
         else if(strncmp(val,"mute",4)==0){ if(vi>=0&&vi<NUM_VOICES)s->voice[vi].muted=!s->voice[vi].muted; }
         else if(strncmp(val,"sel",3)==0){ if(vi>=0&&vi<NUM_VOICES)s->selTrack=vi+1; }
         else if(strncmp(val,"arm",3)==0){ if(vi>=0&&vi<NUM_VOICES){ Voice *v=&s->voice[vi];
@@ -1253,11 +1440,15 @@ static void set_param(void *inst, const char *key, const char *val) {
         } else if(strncmp(val,"load",4)==0) atomic_store(&s->sio.request,2);
         return; }
     if(strcmp(key,"punch")==0){ const char *c=strchr(val,':'); int n=c?atoi(c+1):-1;
-        if(strncmp(val,"on",2)==0)punch_on(s,n); else if(strncmp(val,"off",3)==0)punch_off(s,n); return; }
+        if(n<0||n>=NUM_PUNCH)return;
+        if(strncmp(val,"on",2)==0){ s->fx.userHeld[n]=1; punch_on(s,n); }
+        else if(strncmp(val,"off",3)==0){ s->fx.userHeld[n]=0; if(!s->fx.seqHeld[n]) punch_off(s,n); }   /* the sequencer may still own it */
+        return; }
     if(strcmp(key,"pfx")==0){ int idx=atoi(val); const char *c1=strchr(val,':'); if(!c1)return; int p=atoi(c1+1);
         const char *c2=strchr(c1+1,':'); if(!c2)return; float v=lb_clampf((float)atof(c2+1),0.0f,1.0f);
         if(idx>=0&&idx<NUM_PUNCH&&p>=0&&p<4){ s->punchParams[idx][p]=v;
-            if(p==0){ for(int i=0;i<4;i++) if(s->pslot[i].idx==idx) punch_slot_retune(s,&s->pslot[i],idx); } }
+            if(p==0){ if(PUNCH_DEFS[idx].mech==PM_PALETTE){ int id=(int)(v*(PFX_NUM-1)+0.5f); if(id<0)id=0; if(id>=PFX_NUM)id=PFX_NUM-1; if(id!=s->punchFxId){ s->punchFxId=id; atomic_store(&s->fxSel[2],id); } }
+                      else for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx) punch_slot_retune(s,&s->pslot[i],idx); } }
         return; }
     /* State restore for punch params: "pfx0" .. "pfx15" = "rate,pitch,tone,mix" */
     if(strncmp(key,"pfx",3)==0&&key[3]>='0'&&key[3]<='9'){
@@ -1267,9 +1458,42 @@ static void set_param(void *inst, const char *key, const char *val) {
                 s->punchParams[idx][0]=lb_clampf(a,0.0f,1.0f); s->punchParams[idx][1]=lb_clampf(b,0.0f,1.0f);
                 s->punchParams[idx][2]=lb_clampf(c,0.0f,1.0f); s->punchParams[idx][3]=lb_clampf(d,0.0f,1.0f); } }
         return; }
+    /* FX sequencer */
+    if(strcmp(key,"fxseqRun")==0){ int on=(strcmp(val,"On")==0||atof(val)>0.5); if(on&&!s->fx.run)s->fx.restart=1; s->fx.run=on; return; }
+    if(strcmp(key,"fxseqSpeed")==0){ int i=match_enum(val,fxspeed_opts,7); if(i<0)i=(int)lb_clampf((float)atof(val),0.0f,6.0f); s->fx.speed=i; return; }
+    if(strcmp(key,"fxseqLen")==0){ int n=atoi(val); if(n<1)n=1; if(n>FXSEQ_STEPS)n=FXSEQ_STEPS; s->fx.len=n; return; }
+    if(strcmp(key,"fxseqGate")==0){ s->fx.gate=lb_clampf((float)atof(val),0.1f,1.0f); return; }
+    if(strcmp(key,"fxseqSwing")==0){ s->fx.swing=lb_clampf((float)atof(val),0.5f,0.75f); return; }
+    if(strcmp(key,"fxseqDir")==0){ int i=match_enum(val,fxdir_opts,4); if(i<0)i=(int)lb_clampf((float)atof(val),0.0f,3.0f); s->fx.dir=i; return; }
+    if(strcmp(key,"fxseqClear")==0){ if(atof(val)>0.5){ fxseq_off_all(s); for(int i=0;i<FXSEQ_STEPS;i++) memset(&s->fx.st[i],0,sizeof(FxStep)); } return; }
+    if(strcmp(key,"fxseq")==0){   /* "restart" (Play pressed) or the state line "run,spd,len,gate,swing,dir" */
+        if(strncmp(val,"restart",7)==0){ s->fx.restart=1; return; }
+        int run=0,spd=1,len=16,dir=0; float gate=1,sw=0.5f;
+        if(sscanf(val,"%d,%d,%d,%f,%f,%d",&run,&spd,&len,&gate,&sw,&dir)==6){
+            s->fx.speed=(spd<0||spd>6)?1:spd; s->fx.len=(len<1||len>FXSEQ_STEPS)?16:len; s->fx.gate=lb_clampf(gate,0.1f,1.0f);
+            s->fx.swing=lb_clampf(sw,0.5f,0.75f); s->fx.dir=(dir<0||dir>3)?0:dir; if(run&&!s->fx.run)s->fx.restart=1; s->fx.run=run?1:0; }
+        return; }
+    if(strcmp(key,"fxstep")==0){   /* "IDX:K:PAD:L0:L1:L2:L3:PRESS" — one pad entry of a step */
+        int i=0,k=0,pad=0; float l0=0,l1=0,l2=0,l3=0,pr=0;
+        if(sscanf(val,"%d:%d:%d:%f:%f:%f:%f:%f",&i,&k,&pad,&l0,&l1,&l2,&l3,&pr)==8&&i>=0&&i<FXSEQ_STEPS&&k>=0&&k<FXSEQ_MAXPADS&&pad>=0&&pad<NUM_PUNCH){
+            FxStep *st=&s->fx.st[i]; st->pad[k]=(uint8_t)pad;
+            st->lock[k][0]=lb_clampf(l0,0,1); st->lock[k][1]=lb_clampf(l1,0,1); st->lock[k][2]=lb_clampf(l2,0,1); st->lock[k][3]=lb_clampf(l3,0,1); st->press[k]=lb_clampf(pr,0,1); }
+        return; }
+    if(strcmp(key,"fxstepn")==0){ int i=atoi(val); const char *c=strchr(val,':'); int n=c?atoi(c+1):0;   /* pad count; 0 clears the step */
+        if(i>=0&&i<FXSEQ_STEPS){ if(n<0)n=0; if(n>FXSEQ_MAXPADS)n=FXSEQ_MAXPADS; s->fx.st[i].n=(uint8_t)n; if(n==0){ s->fx.st[i].ext=0; s->fx.st[i].cycles=0; } } return; }
+    if(strcmp(key,"fxchance")==0){ int i=atoi(val); const char *c=strchr(val,':'); int ch=c?atoi(c+1):0; if(i>=0&&i<FXSEQ_STEPS){ if(ch<0)ch=0; if(ch>13)ch=13; s->fx.st[i].chance=(uint8_t)ch; } return; }
+    if(strcmp(key,"fxext")==0){ int i=atoi(val); const char *c=strchr(val,':'); int e=c?atoi(c+1):0; if(i>=0&&i<FXSEQ_STEPS){ s->fx.st[i].ext=e?1:0; if(e)s->fx.st[i].n=0; } return; }
+    if(strncmp(key,"fxs",3)==0&&key[3]>='0'&&key[3]<='9'){   /* state: fxsN = n,ext,chance,pad:l0,l1,l2,l3,pr;... */
+        int i=atoi(key+3); if(i<0||i>=FXSEQ_STEPS)return; FxStep *st=&s->fx.st[i]; memset(st,0,sizeof *st);
+        int n=0,ext=0,ch=0,used=0; if(sscanf(val,"%d,%d,%d%n",&n,&ext,&ch,&used)<3)return;
+        st->ext=ext?1:0; st->chance=(uint8_t)((ch<0||ch>13)?0:ch); const char *q=val+used; int k=0;
+        while(*q&&k<FXSEQ_MAXPADS&&k<n){ if(*q==','||*q==';')q++; int pad=0; float l0=0,l1=0,l2=0,l3=0,pr=0; int u2=0;
+            if(sscanf(q,"%d:%f,%f,%f,%f,%f%n",&pad,&l0,&l1,&l2,&l3,&pr,&u2)<6)break;
+            st->pad[k]=(uint8_t)(pad&15); st->lock[k][0]=l0; st->lock[k][1]=l1; st->lock[k][2]=l2; st->lock[k][3]=l3; st->press[k]=pr; k++; q+=u2; }
+        st->n=(uint8_t)k; return; }
     if(strcmp(key,"punchPress")==0){ int idx=atoi(val); const char *c=strchr(val,':'); float v=c?lb_clampf((float)atof(c+1),0.0f,1.0f):0.0f; if(idx>=0&&idx<NUM_PUNCH)s->punchPress[idx]=v; return; }
-    SETFR("globalSat",globalSat,0.0,1.0) SETFR("masterComp",masterComp,0.0,1.0)
-    SETFR("masterLoCut",masterLoCut,20.0,500.0) SETFR("masterHiCut",masterHiCut,1000.0,20000.0)
+    SETFR("globalSat",globalSat,0.0,2.0) SETFR("masterComp",masterComp,0.0,1.0)
+    SETFR("masterLoCut",masterLoCut,20.0,1000.0) SETFR("masterHiCut",masterHiCut,1000.0,20000.0)
     SETFR("masterVol",masterVol,0.0,1.5)
     if(strcmp(key,"preamp")==0){int idx=match_enum(val,preamp_opts,NUM_PREAMP);if(idx>=0)s->preamp=(float)idx;else s->preamp=lb_clampf((float)atof(val),0.0f,(float)(NUM_PREAMP-1));return;}
     if(strcmp(key,"overdubMode")==0){int idx=match_enum(val,odmode_opts,3);if(idx>=0)s->overdubMode=(float)idx;else s->overdubMode=lb_clampf((float)atof(val),0.0f,2.0f);return;}
@@ -1279,9 +1503,10 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("tapeNoise",tapeNoise,0.0,1.0) SETFR("tapeDrive",tapeDrive,0.0,1.0) SETFR("tapeHF",tapeHF,0.0,1.0)
     if(strcmp(key,"midiIn")==0){ s->midiIn=(strcmp(val,"On")==0||atof(val)>0.5)?1:0; return; }
     SETFR("armThresh",armThresh,0.0,1.0)
+    if(strcmp(key,"tapeHold")==0){ int h=atoi(val); s->tapeHold=(h<0)?-1:(h>0)?1:0; return; }
     SETFR("tapeLoCut",tapeLoCut,0.0,1.0) SETFR("tapeWow",tapeWow,0.0,1.0) SETFR("tapeFlut",tapeFlut,0.0,1.0) SETFR("tapeGen",tapeGen,0.0,1.0)
-    if(strcmp(key,"sendAType")==0){int id=-1; for(int i=0;i<PFX_NUM;i++) if(strcmp(val,pfx_name(i))==0){id=i;break;} if(id<0)id=(int)lb_clampf((float)atof(val),0.0f,(float)(PFX_NUM-1)); s->sendAType=id; if(s->busA)pfx_select(s->busA,id); return;}
-    if(strcmp(key,"sendBType")==0){int id=-1; for(int i=0;i<PFX_NUM;i++) if(strcmp(val,pfx_name(i))==0){id=i;break;} if(id<0)id=(int)lb_clampf((float)atof(val),0.0f,(float)(PFX_NUM-1)); s->sendBType=id; if(s->busB)pfx_select(s->busB,id); return;}
+    if(strcmp(key,"sendAType")==0){int id=-1; for(int i=0;i<PFX_NUM;i++) if(strcmp(val,pfx_name(i))==0){id=i;break;} if(id<0)id=(int)lb_clampf((float)atof(val),0.0f,(float)(PFX_NUM-1)); s->sendAType=id; atomic_store(&s->fxSel[0],id); return;}   /* worker swaps it (may alloc) */
+    if(strcmp(key,"sendBType")==0){int id=-1; for(int i=0;i<PFX_NUM;i++) if(strcmp(val,pfx_name(i))==0){id=i;break;} if(id<0)id=(int)lb_clampf((float)atof(val),0.0f,(float)(PFX_NUM-1)); s->sendBType=id; atomic_store(&s->fxSel[1],id); return;}
     SETFR("sendAM1",sendAM1,0.0,1.0) SETFR("sendAM2",sendAM2,0.0,1.0) SETFR("sendADrift",sendADrift,0.0,1.0)
     SETFR("sendBM1",sendBM1,0.0,1.0) SETFR("sendBM2",sendBM2,0.0,1.0) SETFR("sendBDrift",sendBDrift,0.0,1.0)
     SETFR("stMix",stMix,0.0,1.0) SETFR("stStep",stStep,0.0,1.0) SETFR("stOdds",stOdds,0.0,1.0)
@@ -1409,9 +1634,9 @@ static const char *UI_HIERARCHY_JSON =
 
 /* chain_params JSON */
 static const char *CHAIN_PARAMS_JSON =
-    "[{\"key\":\"globalSat\",\"name\":\"Sat\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
+    "[{\"key\":\"globalSat\",\"name\":\"Sat\",\"type\":\"float\",\"min\":0,\"max\":2,\"step\":0.01},"
     "{\"key\":\"masterComp\",\"name\":\"Comp\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
-    "{\"key\":\"masterLoCut\",\"name\":\"LoCut\",\"type\":\"int\",\"min\":20,\"max\":500,\"step\":1},"
+    "{\"key\":\"masterLoCut\",\"name\":\"LoCut\",\"type\":\"int\",\"min\":20,\"max\":1000,\"step\":1},"
     "{\"key\":\"masterHiCut\",\"name\":\"HiCut\",\"type\":\"int\",\"min\":1000,\"max\":20000,\"step\":200},"
     "{\"key\":\"stability\",\"name\":\"Stabil\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
     "{\"key\":\"globalWowFlut\",\"name\":\"W/Flut\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
@@ -1502,6 +1727,22 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
             int pos=(int)(ph/L*999.0); if(pos<0)pos=0; if(pos>999)pos=999;
             p+=snprintf(buf+p,buf_len-p,"%d,%d%s",v->ph[k].mode,pos,(k<3)?";":""); }
         return p; }
+    if(strcmp(key,"fxseqRun")==0)return snprintf(buf,buf_len,"%s",s->fx.run?"On":"Off");
+    if(strcmp(key,"fxseqSpeed")==0)return snprintf(buf,buf_len,"%s",fxspeed_opts[s->fx.speed]);
+    if(strcmp(key,"fxseqLen")==0)return snprintf(buf,buf_len,"%d",s->fx.len);
+    if(strcmp(key,"fxseqGate")==0)return snprintf(buf,buf_len,"%.4f",(double)s->fx.gate);
+    if(strcmp(key,"fxseqSwing")==0)return snprintf(buf,buf_len,"%.4f",(double)s->fx.swing);
+    if(strcmp(key,"fxseqDir")==0)return snprintf(buf,buf_len,"%s",fxdir_opts[s->fx.dir]);
+    if(strcmp(key,"fxseqClear")==0)return snprintf(buf,buf_len,"0");
+    if(strcmp(key,"fxpat")==0){   /* "pos;................" . empty  o pads  - extension */
+        int p=snprintf(buf,buf_len,"%d;",s->fx.run?s->fx.pos:-1);
+        for(int i=0;i<FXSEQ_STEPS&&p<buf_len-1;i++) buf[p++]=s->fx.st[i].ext?'-':(s->fx.st[i].n?'o':'.');
+        buf[p]=0; return p; }
+    if(strncmp(key,"fxstep",6)==0&&key[6]>='0'&&key[6]<='9'){ int i=atoi(key+6); if(i<0||i>=FXSEQ_STEPS)return -1; const FxStep *st=&s->fx.st[i];
+        int p=snprintf(buf,buf_len,"%d,%d,%d",st->n,st->ext,st->chance);
+        for(int k=0;k<st->n&&k<FXSEQ_MAXPADS;k++) p+=snprintf(buf+p,buf_len-p,";%d:%.4f,%.4f,%.4f,%.4f,%.4f",st->pad[k],(double)st->lock[k][0],(double)st->lock[k][1],(double)st->lock[k][2],(double)st->lock[k][3],(double)st->press[k]);
+        return p; }
+    if(strcmp(key,"undoAvail")==0)return snprintf(buf,buf_len,"%d",(s->undoTrack>=0&&s->undoCount>0&&!atomic_load(&s->undoReq))?s->undoTrack+1:0);
     if(strcmp(key,"armed")==0){ int p=0;
         for(int i=0;i<NUM_VOICES&&p<buf_len-1;i++) buf[p++]=(char)('0'+(s->voice[i].armed?1:0));
         buf[p]='\0'; return p; }
@@ -1582,6 +1823,12 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
         WI("midiIn",s->midiIn);WF("armThresh",s->armThresh);WF("tapeLoCut",s->tapeLoCut);WF("tapeWow",s->tapeWow);WF("tapeFlut",s->tapeFlut);WF("tapeGen",s->tapeGen);
         /* Master + keyboard */
         WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);
+        /* FX sequencer */
+        p+=snprintf(buf+p,buf_len-p,"fxseq=%d,%d,%d,%.3f,%.3f,%d\n",s->fx.run,s->fx.speed,s->fx.len,(double)s->fx.gate,(double)s->fx.swing,s->fx.dir);
+        for(int i=0;i<FXSEQ_STEPS;i++){ const FxStep *st=&s->fx.st[i]; if(!st->n&&!st->ext)continue;
+            p+=snprintf(buf+p,buf_len-p,"fxs%d=%d,%d,%d",i,st->n,st->ext,st->chance);
+            for(int k=0;k<st->n&&k<FXSEQ_MAXPADS;k++) p+=snprintf(buf+p,buf_len-p,";%d:%.3f,%.3f,%.3f,%.3f,%.3f",st->pad[k],(double)st->lock[k][0],(double)st->lock[k][1],(double)st->lock[k][2],(double)st->lock[k][3],(double)st->press[k]);
+            p+=snprintf(buf+p,buf_len-p,"\n"); }
         /* Punch-in FX per-effect params */
         for(int pi=0;pi<NUM_PUNCH;pi++)
             p+=snprintf(buf+p,buf_len-p,"pfx%d=%.4f,%.4f,%.4f,%.4f\n",pi,

@@ -750,10 +750,10 @@ static void fx_interference(slot_dsp_t *s, float *l, float *r, int n,
     /* crush scales WITH amount (was inverted → heavy crush + noise at low amounts).
      * targetA = sample-rate increment: ~1 (clean) at A=0 → 0.03 (heavy SR reduction) at A=1.
      * targetB = bit-quant step: 0 (no quantize) at A=0 → coarse at A=1. */
-    float targetA=1.0f - A*0.97f; if(targetA<0.03f)targetA=0.03f;
+    float targetA=1.0f - A*0.92f; if(targetA<0.08f)targetA=0.08f;
     float soften=(1.0f+targetA)/2.0f;
-    float targetB=A*A*0.33f;                          /* bit-depth derez (scales up with amount) */
-    float hard=0.45f;                                 /* more dry blend = less harsh */
+    float targetB=A*A*0.22f;                          /* bit-depth derez (scales up with amount) */
+    float hard=0.6f;                                  /* more dry blend = less harsh */
     float carr=200.0f+macro*macro*3000.0f;
     const float L256=logf(256.0f);
     for(int i=0;i<n;i++){
@@ -787,15 +787,15 @@ static void fx_interference(slot_dsp_t *s, float *l, float *r, int n,
                 if(x>0.0f)      x=ceilf (x/s->f3)*s->f3;
                 else if(x<0.0f) x=floorf(x/s->f3)*s->f3;
             }
-            x=lerpf(x, x*sinf(s->lfo*TWO_PI), macro*0.4f);  /* ring-mod radio */
+            x=lerpf(x, x*sinf(s->lfo*TWO_PI), macro*0.3f);  /* ring-mod radio */
             if(drift>0.0f && frand(&s->seed)<drift*0.04f) x+=(frand(&s->seed)-0.5f)*drift;
             out[c]=x;
         }
         s->z3l=in[0]; s->z3r=in[1];                    /* lastDry = dry input */
         s->z4l=lastOut[0]; s->z4r=lastOut[1];
         s->lfo+=carr/SR; if(s->lfo>=1.0f)s->lfo-=1.0f;
-        l[i]=lerpf(in[0], out[0]*0.85f, amount);       /* amount=0 → dry; trim µ-law boost */
-        r[i]=lerpf(in[1], out[1]*0.85f, amount);
+        l[i]=lerpf(in[0], out[0]*0.6f, amount);        /* amount=0 → dry; trim µ-law boost */
+        r[i]=lerpf(in[1], out[1]*0.6f, amount);
     }
 }
 
@@ -840,73 +840,78 @@ static void fx_halo(slot_dsp_t *s, float *l, float *r, int n,
 }
 
 /* ── Vtable: index by PFX_* id. OFF has no entry (host skips). ───────────────── */
-/* ---- Plate reverb (Dattorro-style, ported from LoopBox core; own state pool) ----
- * amount = decay time, macro = size/pre-delay, drift = damping. 100% wet (send bus). */
-#define PLR_EA 61
-#define PLR_EB 499
-#define PLR_EC 107
-#define PLR_ED 127
-#define PLR_EE 607
-#define PLR_EF 313
-#define PLR_A 631
-#define PLR_B 281
-#define PLR_C 97
-#define PLR_D 709
-#define PLR_E 307
-#define PLR_F 149
-#define PLR_G 313
-#define PLR_H 37
-#define PLR_I 659
-#define PLR_J 701
-#define PLR_K 733
-#define PLR_L 787
-#define PLR_PRE 8820
+/* ---- Plate reverb: Jon Dattorro, "Effect Design Part 1" (JAES 1997), figure 1.
+ * The published topology at its published delay lengths (29761 Hz, scaled to
+ * 44.1 kHz): bandwidth LP -> 4 input diffusers -> a figure-8 tank of two halves,
+ * each = modulated all-pass, delay, damping LP, all-pass, delay, cross-fed with
+ * `decay`. Seven output taps per side straight from the paper. 100% wet (send).
+ * amount = decay, macro = pre-delay + bandwidth, drift = damping + tank modulation. */
+#define DS(x) (((x)*148181)/100000+1)     /* 29761 -> 44100, integer so the struct is fixed-size */
+#define PL_MODX 40                          /* headroom for the modulated all-passes */
 typedef struct {
-    float eA[PLR_EA+2],eB[PLR_EB+2],eC[PLR_EC+2],eD[PLR_ED+2],eE[PLR_EE+2],eF[PLR_EF+2];
-    int ceA,ceB,ceC,ceD,ceE,ceF;
-    float aA[PLR_A+2],aB[PLR_B+2],aC[PLR_C+2],aD[PLR_D+2],aE[PLR_E+2],aF[PLR_F+2];
-    float aG[PLR_G+2],aH[PLR_H+2],aI[PLR_I+2],aJ[PLR_J+2],aK[PLR_K+2],aL[PLR_L+2];
-    int cA,cB,cC,cD,cE,cF,cG,cH,cI,cJ,cK,cL;
-    float pre[PLR_PRE+2]; int cPre;
-    float fbA,fbB,fbC,fbD,prevA,prevB,prevC,prevD,iirA,iirB;
-    float hpX,hpY;   /* in-loop DC/sub blocker (~25 Hz) — stops long-tail LF buildup */
+    float in1[DS(142)], in2[DS(107)], in3[DS(379)], in4[DS(277)]; int p1,p2,p3,p4;
+    float apL[DS(672)+PL_MODX], dL1[DS(4453)], ap2L[DS(1800)], dL2[DS(3720)]; int pAL,pDL1,pA2L,pDL2;
+    float apR[DS(908)+PL_MODX], dR1[DS(4217)], ap2R[DS(2656)], dR2[DS(3163)]; int pAR,pDR1,pA2R,pDR2;
+    float pre[DS(4096)]; int pPre;
+    float bwZ, dampL, dampR, lfo;
 } pfx_plate_t;
+/* write x into a ring of size n at *p and return the sample that was there (delay of n) */
+static inline float pl_dl(float *b, int n, int *p, float x){ float z=b[*p]; b[*p]=x; if(++*p>=n)*p=0; return z; }
+/* tap: the sample written t samples ago (t < n) */
+static inline float pl_tap(const float *b, int n, int p, int t){ int i=p-t; if(i<0)i+=n; return b[i]; }
+/* fractional tap for the modulated all-passes */
+static inline float pl_tapf(const float *b, int n, int p, float t){
+    int ti=(int)t; float f=t-(float)ti; int i0=p-ti; if(i0<0)i0+=n; int i1=i0-1; if(i1<0)i1+=n;
+    return b[i0]*(1.0f-f)+b[i1]*f; }
+/* all-pass of nominal length n in a ring of size n (Dattorro sign convention) */
+static inline float pl_ap(float *b, int n, int *p, float x, float g){
+    float z=b[*p]; float v=x+g*z; float y=z-g*v; b[*p]=v; if(++*p>=n)*p=0; return y; }
+/* modulated all-pass: nominal delay n, ring n+PL_MODX, read at n+exc */
+static inline float pl_apm(float *b, int size, int n, int *p, float x, float g, float exc){
+    float d=(float)n+exc; if(d<1.0f)d=1.0f; if(d>(float)(size-2))d=(float)(size-2);
+    float z=pl_tapf(b,size,*p,d); float v=x+g*z; float y=z-g*v; b[*p]=v; if(++*p>=size)*p=0; return y; }
 
 static void pfx_plate_step(pfx_plate_t *r, float inL, float inR, float *outL, float *outR,
-                           float rvTime, float rvSize, float rvDamp){
-    float input=(inL+inR)*0.5f;
-    float feedback=0.35f+rvTime*0.55f; float predelay=rvSize*(float)PLR_PRE*0.8f;
-    r->pre[r->cPre]=input; r->cPre++; if(r->cPre>=PLR_PRE)r->cPre=0;
-    int preRead=r->cPre-(int)predelay; if(preRead<0)preRead+=PLR_PRE; input=r->pre[preRead];
-    r->iirA=r->iirA*(0.5f+rvSize*0.4f)+input*(0.5f-rvSize*0.4f); input=r->iirA;
-    { float hp=input-r->hpX+0.9964f*r->hpY; r->hpX=input; r->hpY=hp; input=hp; }  /* ~25 Hz HP into the tank */
-    r->eA[r->ceA]=input;r->ceA++;if(r->ceA>=PLR_EA)r->ceA=0;
-    r->eB[r->ceB]=input;r->ceB++;if(r->ceB>=PLR_EB)r->ceB=0;
-    r->eC[r->ceC]=input;r->ceC++;if(r->ceC>=PLR_EC)r->ceC=0;
-    r->eD[r->ceD]=input;r->ceD++;if(r->ceD>=PLR_ED)r->ceD=0;
-    r->eE[r->ceE]=input;r->ceE++;if(r->ceE>=PLR_EE)r->ceE=0;
-    r->eF[r->ceF]=input;r->ceF++;if(r->ceF>=PLR_EF)r->ceF=0;
-    float earlyL=r->eA[(r->ceA-PLR_EA+PLR_EA*2)%PLR_EA]*0.17f+r->eC[(r->ceC-PLR_EC+PLR_EC*2)%PLR_EC]*0.13f+r->eE[(r->ceE-PLR_EE+PLR_EE*2)%PLR_EE]*0.11f;
-    float earlyR=r->eB[(r->ceB-PLR_EB+PLR_EB*2)%PLR_EB]*0.15f+r->eD[(r->ceD-PLR_ED+PLR_ED*2)%PLR_ED]*0.14f+r->eF[(r->ceF-PLR_EF+PLR_EF*2)%PLR_EF]*0.12f;
-    float tankIn=(earlyL+earlyR)*0.5f+r->fbA*feedback;
-    r->aA[r->cA]=tankIn+r->fbD*feedback*0.3f;r->cA++;if(r->cA>=PLR_A)r->cA=0;r->prevA=r->aA[r->cA%PLR_A];
-    r->aB[r->cB]=r->prevA;r->cB++;if(r->cB>=PLR_B)r->cB=0;
-    r->aC[r->cC]=r->aB[r->cC%PLR_B]+r->fbB*feedback*0.2f;r->cC++;if(r->cC>=PLR_C)r->cC=0;
-    r->aD[r->cD]=r->aC[r->cC%PLR_C];r->cD++;if(r->cD>=PLR_D)r->cD=0;r->prevB=r->aD[r->cD%PLR_D];
-    r->aE[r->cE]=r->prevB+r->fbC*feedback*0.2f;r->cE++;if(r->cE>=PLR_E)r->cE=0;
-    r->aF[r->cF]=r->aE[r->cE%PLR_E];r->cF++;if(r->cF>=PLR_F)r->cF=0;
-    r->aG[r->cG]=r->aF[r->cF%PLR_F];r->cG++;if(r->cG>=PLR_G)r->cG=0;r->prevC=r->aG[r->cG%PLR_G];
-    r->aH[r->cH]=r->prevC;r->cH++;if(r->cH>=PLR_H)r->cH=0;
-    r->aI[r->cI]=r->aH[r->cH%PLR_H]+r->fbD*feedback*0.15f;r->cI++;if(r->cI>=PLR_I)r->cI=0;
-    r->aJ[r->cJ]=r->aI[r->cI%PLR_I];r->cJ++;if(r->cJ>=PLR_J)r->cJ=0;r->prevD=r->aJ[r->cJ%PLR_J];
-    r->aK[r->cK]=r->prevD;r->cK++;if(r->cK>=PLR_K)r->cK=0;
-    r->aL[r->cL]=r->aK[r->cK%PLR_K];r->cL++;if(r->cL>=PLR_L)r->cL=0;
-    r->fbA=r->prevA*0.5f;r->fbB=r->prevB*0.5f;r->fbC=r->prevC*0.5f;r->fbD=r->prevD*0.5f;
-    float dampK=1.0f-rvDamp*0.7f;
-    r->fbA*=dampK;r->fbB*=dampK;r->fbC*=dampK;r->fbD*=dampK;
-    r->iirB=r->iirB*(0.6f+rvTime*0.35f)+r->fbA*(0.4f-rvTime*0.35f);r->fbA=r->iirB;
-    *outL=earlyL*0.4f+r->prevA*0.25f+r->prevC*0.2f+r->aL[r->cL%PLR_L]*0.15f;
-    *outR=earlyR*0.4f+r->prevB*0.25f+r->prevD*0.2f+r->aK[r->cK%PLR_K]*0.15f;
+                           float amount, float macro, float drift){
+    const float decay=0.30f+amount*0.67f;                       /* 0.30 .. 0.97 */
+    const float bw=0.9995f-macro*0.4f;                           /* macro darkens the input a little */
+    const float damp=0.0005f+drift*0.5f;
+    const float modDepth=(2.0f+drift*10.0f)*1.48181f;
+    int preN=(int)(macro*macro*0.09f*SR); if(preN>DS(4096)-2)preN=DS(4096)-2;
+    float x=(inL+inR)*0.5f;
+    /* pre-delay (macro), then Dattorro's input bandwidth one-pole */
+    r->pre[r->pPre]=x; { int i=r->pPre-preN; if(i<0)i+=DS(4096); x=r->pre[i]; } if(++r->pPre>=DS(4096))r->pPre=0;
+    r->bwZ=x*bw+r->bwZ*(1.0f-bw); x=r->bwZ;
+    x=pl_ap(r->in1,DS(142),&r->p1,x,0.75f);
+    x=pl_ap(r->in2,DS(107),&r->p2,x,0.75f);
+    x=pl_ap(r->in3,DS(379),&r->p3,x,0.625f);
+    x=pl_ap(r->in4,DS(277),&r->p4,x,0.625f);
+    /* tank: the two halves cross-feed each other's last delay */
+    r->lfo+=1.0f/SR; if(r->lfo>=1.0f)r->lfo-=1.0f;
+    float excL=modDepth*sinf(r->lfo*TWO_PI), excR=modDepth*cosf(r->lfo*TWO_PI);
+    float fbL=pl_tap(r->dR2,DS(3163),r->pDR2,DS(3163)-1)*decay;   /* right half output -> left half */
+    float fbR=pl_tap(r->dL2,DS(3720),r->pDL2,DS(3720)-1)*decay;
+    float tL=x+fbL, tR=x+fbR;
+    tL=pl_apm(r->apL,DS(672)+PL_MODX,DS(672),&r->pAL,tL,-0.70f,excL);
+    tL=pl_dl(r->dL1,DS(4453),&r->pDL1,tL);
+    r->dampL=tL*(1.0f-damp)+r->dampL*damp; tL=r->dampL*decay;
+    tL=pl_ap(r->ap2L,DS(1800),&r->pA2L,tL,0.50f);
+    pl_dl(r->dL2,DS(3720),&r->pDL2,tL);
+    tR=pl_apm(r->apR,DS(908)+PL_MODX,DS(908),&r->pAR,tR,-0.70f,excR);
+    tR=pl_dl(r->dR1,DS(4217),&r->pDR1,tR);
+    r->dampR=tR*(1.0f-damp)+r->dampR*damp; tR=r->dampR*decay;
+    tR=pl_ap(r->ap2R,DS(2656),&r->pA2R,tR,0.50f);
+    pl_dl(r->dR2,DS(3163),&r->pDR2,tR);
+    /* output taps (paper, table 2) */
+    float yl= pl_tap(r->dR1,DS(4217),r->pDR1,DS(266))  + pl_tap(r->dR1,DS(4217),r->pDR1,DS(2974))
+            - pl_tap(r->ap2R,DS(2656),r->pA2R,DS(1913)) + pl_tap(r->dR2,DS(3163),r->pDR2,DS(1996))
+            - pl_tap(r->dL1,DS(4453),r->pDL1,DS(1990))  - pl_tap(r->ap2L,DS(1800),r->pA2L,DS(187))
+            - pl_tap(r->dL2,DS(3720),r->pDL2,DS(1066));
+    float yr= pl_tap(r->dL1,DS(4453),r->pDL1,DS(353))  + pl_tap(r->dL1,DS(4453),r->pDL1,DS(3627))
+            - pl_tap(r->ap2L,DS(1800),r->pA2L,DS(1228)) + pl_tap(r->dL2,DS(3720),r->pDL2,DS(2673))
+            - pl_tap(r->dR1,DS(4217),r->pDR1,DS(2111))  - pl_tap(r->ap2R,DS(2656),r->pA2R,DS(335))
+            - pl_tap(r->dR2,DS(3163),r->pDR2,DS(121));
+    *outL=yl*0.6f; *outR=yr*0.6f;
 }
 static void fx_plate(slot_dsp_t *d, float *l, float *r, int n, float amount, float macro, float drift){
     pfx_plate_t *p=(pfx_plate_t*)d->plate; if(!p)return;   /* NULL pool -> passthrough */

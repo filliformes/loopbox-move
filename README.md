@@ -13,7 +13,7 @@ and a MIDI-keyboard polyphony layer.
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
 - **Module:** `loopbox` · **Name:** LoopBox · **Abbrev:** LBX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.5.2 · **License:** GPL-3.0
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.6.0 · **License:** GPL-3.0
 
 ---
 
@@ -69,13 +69,30 @@ Cascade, Reels, Collage, Reverse, Space, Bloom, Filter, Squash, Cassette, Broken
 Interference, Halo, Plate — each with Amount / Macro / Drift.
 
 ### Punch-in FX (right 16 pads)
-Sixteen momentary glitch effects over a 2-second capture ring, in four families —
-**Loops** (1/16 · 1/12 · short · long), **Grains** (Haze · Mosaic · Smear · Strum),
-**Pitch** (Oct+ · Oct− · Glide · Shimmer) and **Time** (Stretch · Freeze · Reverse · Chop) —
-**up to 4 stacked in series**. Slice effects auto-pan in sync with their rate.
+Sixteen momentary effects over a 2-second capture ring, in four families —
+**Loops** (1/12 · 1/16 · short · **Chop**, with eight rhythmic patterns from Signal),
+**Grains** (Haze · Mosaic · Smear · Strum), **Pitch** (Oct+ · Oct− · Glide · Shimmer) and
+**Time** (Stretch · Freeze · Reverse · **PalFX**, one Palette effect as a punch: FX / Amount /
+Macro / Drift, default Space) — **up to 5 stacked in series**. Slice effects auto-pan in
+sync with their rate, and every slot loudness-matches its wet to the dry it replaces.
 Hold a pad to apply; **knobs 5–8 edit the held effect's four parameters** live, and
 **pad pressure** drives a per-effect expression (subdivide, density, glide, freeze, rate…)
-shown in the footer. **Shift + pad latches** it on hands-free.
+shown in the footer. **Shift + pad latches** it on hands-free; **Shift while holding** latches
+it exactly as it is, pressure included. **Undo + pad** resets a pad to its defaults.
+
+### FX sequencer (✕ button)
+One shared 16-step pattern of punch pads, modelled on the Polyend MESS. **Tap ✕** to run or
+stop; **hold ✕** to see the pattern on the step buttons (orange = step, dim = extension,
+white = playhead) and its page: Run · Speed (1/32 … 1 beat) · Length · Chance · Gate ·
+Swing · Direction · Clear. **✕ + pad(s) + step** writes up to five pads into a step with
+their knobs and pressure locked; **✕ + step** clears it; **✕ + step + later step** extends
+it; **✕ + held step + knob 4** sets that step's play chance (Always, 10–90 %, Like Last,
+Play X Skip Y) and **knobs 5–8** edit its locks. Play restarts the pattern.
+
+### Tape transport (◀ ▶)
+Hold **Left** and the whole master brakes to a stop in about three seconds; hold **Right**
+and it winds up to a tone. Release and it eases back to 1×. The glide is linear in
+semitones and the last octaves of a stop fade to silence.
 
 ### The Tape machine (record path)
 A full input tape stage on the **Capture** button: **Tape model** (13, including a true
@@ -93,7 +110,8 @@ cores 0–2, never on the audio callback. Sessions live in
 - **Perform menu:** Stumble (probabilistic step glitch), Jump, Scan, Dropout.
 - **MIDI keyboard:** 8-voice polyphony playing a loop chromatically through its full FX
   chain. **Off by default** (Settings → MIDI) so Move tracks' MIDI-out cannot trigger loops.
-- **Settings:** Master Out, root note, overdub mode, master Lo/Hi cut, global sat, MIDI, arm threshold.
+- **Settings:** Master Out, global sat (to 2.0), master Lo/Hi cut, arm threshold, overdub mode, root note, MIDI.
+- **Undo** reverts the last overdub exactly (each overwritten sample is saved as it goes), else restores the last cleared loop.
 
 ---
 
@@ -109,9 +127,9 @@ cores 0–2, never on the audio callback. Sessions live in
 | **Mute + tap** | quick-mute (playhead keeps running — returns in phase) |
 | **Copy + pad, then pad** | clone a loop (source blinks, second pad receives it) |
 | **Loop + pad** | cycle loop length 1× → ½× → ¼× → ⅛× |
-| **Right pad** | punch-FX (momentary) · **Shift + pad** = latch |
+| **Right pad** | punch-FX (momentary) · **Shift + pad** = latch · **Undo + pad** = reset params · **✕ + pad + step** = sequence |
 | **Step** | select track (shows its waveform) · same step again = next loop page |
-| **Track buttons 1–4** | menus: Input FX · Global FX · Perform · Settings |
+| **Track buttons 1–4** | menus: Input FX · Perform · Send FX · Settings |
 
 ### Buttons and knobs
 | Control | Action |
@@ -120,10 +138,12 @@ cores 0–2, never on the audio callback. Sessions live in
 | **Touch a knob** | full 8-knob page on screen (~5 s) |
 | **Up / Down** | previous / next loop page (P1–P4) |
 | **Jog wheel** | scrub the selected loop (audible, tape-style) · in P4 moves the touched head |
-| **Capture** | Tape menu |
+| **Capture** | Input Tape menu |
+| **✕ (Delete)** | tap = run/stop the FX sequencer · hold = pattern view + FX Seq page |
+| **Left / Right** | tape stop / tape wind (held) |
 | **Sample/Record** | Sessions menu · **Shift + Sample** = threshold-arm (pad blinks red) · **+ jog** sets the threshold |
 | **Mute / Copy / Loop** (held) | modifiers — lit while held |
-| **Undo** | restore the last-cleared loop |
+| **Undo** | revert the last overdub, else restore the last-cleared loop |
 | **Back** | close a menu, then exit |
 | **Full exit** | **Shift + Volume + Jog-click** (a plain Back only *suspends*) |
 

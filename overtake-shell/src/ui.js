@@ -16,8 +16,8 @@
 
 import {
     Black, White, LightGrey, DarkGrey,
-    BrightRed, NeonGreen, Purple, AzureBlue, VividYellow,
-    MoveKnob1, MoveShift, MoveBack, MoveUp, MoveDown, MoveLeft, MoveRight, MoveUndo, MoveMute,
+    BrightRed, NeonGreen, NeonPink, Purple, AzureBlue, VividYellow, BrightOrange, DarkOrange,
+    MoveKnob1, MoveShift, MoveBack, MoveUp, MoveDown, MoveLeft, MoveRight, MoveUndo, MoveMute, MoveDelete, MovePlay,
     MoveSample, MoveCapture, MoveCopy, MoveLoop, MoveMainKnob,
     MoveSteps, MoveRow1, MoveRow2, MoveRow3, MoveRow4,
     WhiteLedOff, WhiteLedDim, WhiteLedBright,
@@ -61,6 +61,14 @@ let voiceState = new Array(NV).fill(0);
 let sel = 0;                 /* selected track, 0-based */
 let shiftHeld = false;
 let muteHeld = false;       /* MoveMute held = quick-mute modifier */
+let undoHeld = false, undoUsed = false;   /* Undo held: + punch pad = reset its params; released unused = undo */
+function doUndo() {
+    const ua = parseInt(gp('undoAvail') || '0', 10);
+    if (ua > 0) { spCmd('undo'); setMsg('T' + ua + ' overdub undone'); return; }
+    if (lastCleared >= 0) { spCmd('unclr:' + lastCleared); voiceState[lastCleared] = 2;
+        enqLED(LEFT_NOTES[lastCleared], padColor(lastCleared)); setMsg('T' + (lastCleared + 1) + ' restored'); lastCleared = -1; }
+    else setMsg('nothing to undo');
+}
 let loopPage = 0;           /* 0/1/2 = loop pages 1/2/3 (Up/Down/Left/Right arrows switch) */
 let dirty = false;          /* screen repaint hint (declared explicitly; strict-mode safe) */
 let lastCleared = -1;       /* last track cleared, for Undo (MoveUndo) */
@@ -77,22 +85,33 @@ function setMsg(m) { statusMsg = m; statusMsgUntil = tickCount + 40; }
 function now() { return (typeof Date !== 'undefined' && Date.now) ? Date.now() : tickCount * 23; }
 
 /* ---- Punch-in FX (right 16 pads) ---- */
-const PUNCH_NAMES = ['Loop16','Loop12','LoopSh','LoopSr', 'Haze','Mosaic','Smear','Strum',
-                     'Oct+','Oct-','Glide','Shmr',      'Strch','Freez','Revrse','Chop'];
-const PUNCH_PAD_COLORS = [AzureBlue,AzureBlue,AzureBlue,AzureBlue, NeonGreen,NeonGreen,NeonGreen,NeonGreen,
+const PUNCH_NAMES = ['Loop12','Loop16','LoopSh','Chop',   'Haze','Mosaic','Smear','Strum',
+                     'Oct+','Oct-','Glide','Shmr',      'Strch','Freez','Revrse','PalFX'];
+const PUNCH_PAD_COLORS = [AzureBlue,AzureBlue,AzureBlue,AzureBlue, NeonPink,NeonPink,NeonPink,NeonPink,
                           Purple,Purple,Purple,Purple,             VividYellow,VividYellow,VividYellow,BrightRed];
 const PUNCH_PARAMS = [ /* per-effect labels for knobs 5,6,7,8 */
-  ['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],
+  ['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Pit','Tone','Mix'],['Rate','Patrn','Tone','Mix'],
   ['Size','Pit','Dens','Mix'],['Grid','Pit','Var','Mix'],['Size','Pit','Dens','Mix'],['Rate','Dir','Tone','Mix'],
   ['Fine','Pit','Tone','Mix'],['Fine','Pit','Tone','Mix'],['Len','Glide','Tone','Mix'],['Regn','Pit','Tone','Mix'],
-  ['Strch','Pit','Grn','Mix'],['Frz','Pit','Grn','Mix'],['Len','Pit','Tone','Mix'],['Rate','Patrn','Tone','Mix']
+  ['Strch','Pit','Grn','Mix'],['Frz','Pit','Grn','Mix'],['Len','Pit','Tone','Mix'],['FX','Amt','Mac','Drift']
 ];
 /* what pad PRESSURE does on each effect (shown while the pad is held) */
-const PUNCH_PRESS = ['subdivide','subdivide','subdivide','subdivide', 'density','grid x2','density','faster+wider',
-                     'mix','mix','glide','regen',                     'freeze','freeze','shorter','rate x2'];
+const PUNCH_PRESS = ['subdivide','subdivide','subdivide','rate x2', 'density','grid x2','density','faster+wider',
+                     'mix','mix','glide','regen',                     'freeze','freeze','shorter','amount'];
+/* PFX_NAMES (declared with the Send FX menu below) also names knob 5 of the PalFX pad */
+const NUM_CHOP_PAT = 8;
+/* knob cells that are enums rather than 0..1 floats: [pad, knob] -> {n, disp, toVal, fromVal} */
+function punchEnum(i, j) {
+    if (i === 15 && j === 0) return { n: PFX_NAMES.length, disp: ix => PFX_NAMES[ix], toVal: ix => ix / (PFX_NAMES.length - 1), fromVal: v => Math.max(0, Math.min(PFX_NAMES.length - 1, Math.round(v * (PFX_NAMES.length - 1)))) };
+    if (i === 3 && j === 1)  return { n: NUM_CHOP_PAT, disp: ix => 'Pat ' + (ix + 1), toVal: ix => (ix + 0.5) / NUM_CHOP_PAT, fromVal: v => Math.max(0, Math.min(NUM_CHOP_PAT - 1, Math.floor(v * NUM_CHOP_PAT))) };
+    return null;
+}
+function punchDisp(i, j, v) { const e = punchEnum(i, j); return e ? e.disp(e.fromVal(v)) : Number(v).toFixed(2); }
 let punchMode = false, punchActive = -1;
 const heldPunch = [];  /* currently-held punch pads (up to 4, in press order) */
 const punchLatched = new Array(NV).fill(false);  /* Shift+pad = latch on (hands-free) */
+const padPress = new Array(NV).fill(0), pressMax = new Array(NV).fill(0);   /* live pad pressure, peak during the hold */
+const pressFrozen = new Array(NV).fill(false);   /* Shift while holding: latch WITH the pressure of that moment */
 const physHeld = [];   /* punch pads currently pressed — only THESE capture knobs 5-8 */
 const punchVals = [];  /* [16][4] per-effect stored values */
 for (let i = 0; i < 16; i++) punchVals.push([0.5, 0.5, 1.0, 1.0]);
@@ -101,14 +120,17 @@ punchVals[5]  = [0.5, 0.5, 0.4, 1.0];   /* Mosaic: 1/8 grid, some variation */
 punchVals[6]  = [0.5, 0.5, 0.5, 1.0];   /* Smear:  long grains, mid density */
 punchVals[7]  = [0.6, 0.75, 1.0, 1.0];  /* Strum:  brisk, upward, open tone */
 punchVals[10] = [0.5, 0.25, 1.0, 1.0];  /* Glide:  1/4 beat, gliding down */
-punchVals[11] = [0.4, 0.0, 0.4, 1.0];   /* Shimmer: regen, pitch 1x, darker tone */
+punchVals[11] = [0.5, 0.5, 0.5, 1.0];   /* Shimmer: regen, +1 octave, mid tone */
 punchVals[12] = [0.5, 0.5, 0.3, 1.0];   /* Stretch: mid stretch, small grain */
 punchVals[13] = [1.0, 0.5, 0.3, 1.0];   /* Freeze:  full freeze */
-punchVals[15] = [0.5, 0.5, 1.0, 1.0];   /* Chop:   1/4 grid, medium pattern */
+punchVals[3]  = [0.5, 0.0625, 1.0, 1.0]; /* Chop:   1/4 grid, pattern 1 */
+punchVals[15] = [17 / 25, 0.5, 0.5, 0.0]; /* PalFX:  Space reverb, half amount */
+const PUNCH_DEFAULTS = punchVals.map(a => a.slice());   /* Undo + pad restores these */
 
 /* ---- Track-button menus (MoveRow1..4) ---- */
 const ROW_CCS = [MoveRow1, MoveRow2, MoveRow3, MoveRow4];   /* Track buttons 1..4 */
-const MENU_NAMES = ['Input FX', 'Global FX', 'Perform', 'Settings', 'Tape', 'Sessions'];
+const MENU_NAMES = ['Input FX', 'Perform', 'Send FX', 'Settings', 'Input Tape', 'Sessions', 'FX Seq'];
+const CHANCE_NAMES = ['Always','10%','20%','30%','40%','50%','60%','70%','80%','90%','LikeLast','P1 S1','P2 S1','S1 P1'];
 const PFX_NAMES = ['Off','Drive','Sweeten','Fuzz','Howl','Fold','Swell','Doubler','Vibrato','Phaser','Tremolo','Pitch','Shift',
                    'Cascade','Reels','Collage','Reverse','Space','Bloom','Filter','Squash','Cassette','Broken','Interference','Halo','Plate'];
 const PREAMP_NAMES = ['Tapeless','Clean','Cass1','Cass2','VHS1','VHS2','Reel15','Reel7','Reel3','4trk','Porta','Dub','Warp'];
@@ -132,10 +154,10 @@ const MENU_DEFS = [
       { k:'jump', trig:true, lbl:'Jump' }, { k:'scan', trig:true, lbl:'Scan' },
     ],
     [ /* Track 4 — Settings */
-      { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true },
-      { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' }, { k:'masterLoCut', lo:20, hi:500, lbl:'LoCut', int:true },
-      { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true }, { k:'globalSat', lo:0, hi:1, lbl:'gSat' },
-      { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },  { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },
+      { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'globalSat', lo:0, hi:2, lbl:'gSat' },
+      { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 }, { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 },
+      { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },     { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' },
+      { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },
     ],
     [ /* 4 — Tape (Capture button): the record-path tape machine, Magneto-style */
       { k:'preamp', opts:PREAMP_NAMES, lbl:'Tape' },  { k:'tapeDrive', lo:0, hi:1, lbl:'Drive' },
@@ -148,18 +170,77 @@ const MENU_DEFS = [
       { k:'sessSave', trig:true, lbl:'Save' },
       { k:'sessLoad', trig:true, lbl:'Load' },
     ],
+    [ /* 6 — FX Seq (Delete button): one shared 16-step pattern of punch pads (MESS-style) */
+      { k:'fxseqRun', opts:['Off','On'], lbl:'Run' },        { k:'fxseqSpeed', opts:['1/32','1/16','1/8T','1/8','1/4','1/2','1'], lbl:'Speed' },
+      { k:'fxseqLen', lo:1, hi:16, lbl:'Len', int:true },    { k:'fxseqChance', opts:CHANCE_NAMES, lbl:'Chnc', chance:true },
+      { k:'fxseqGate', lo:0.1, hi:1, lbl:'Gate', hold:true }, { k:'fxseqSwing', lo:0.5, hi:0.75, lbl:'Swing' },
+      { k:'fxseqDir', opts:['Fwd','Bwd','Ping','Rand'], lbl:'Dir' }, { k:'fxseqClear', trig:true, lbl:'Clear' },
+    ],
 ];
+/* ---- FX sequencer UI state ---- */
+let delHeld = false, delUsed = false, delDownAt = 0;   /* Delete (X) held: gestures; a quick lone tap toggles Run */
+const delPads = [];                                  /* punch pads pressed while X is held: selection only, no sound */
+let delStepHeld = -1;                                /* step held with X: locks / chance edit, extension anchor */
+let seqRun = false, fxPos = -1, defaultChance = 0, confirmClear = false;
+const stepMirror = [];                               /* UI copy of the DSP pattern, for LEDs and lock editing */
+for (let i = 0; i < 16; i++) stepMirror.push({ n: 0, ext: 0, chance: 0, pads: [], locks: [], press: [] });
+function parseStepMirror(i, r) {
+    const m = stepMirror[i]; m.n = 0; m.ext = 0; m.chance = 0; m.pads = []; m.locks = []; m.press = [];
+    if (!r) return;
+    const parts = String(r).split(';'); const head = parts[0].split(',');
+    m.n = parseInt(head[0]) || 0; m.ext = parseInt(head[1]) || 0; m.chance = parseInt(head[2]) || 0;
+    for (let k = 1; k < parts.length; k++) { const kv = parts[k].split(':'); const vals = (kv[1] || '').split(',').map(Number);
+        m.pads.push(parseInt(kv[0]) || 0); m.locks.push([vals[0] || 0, vals[1] || 0, vals[2] || 0, vals[3] || 0]); m.press.push(vals[4] || 0); }
+    m.n = m.pads.length;
+}
+function pollSeqMirror() { for (let i = 0; i < 16; i++) parseStepMirror(i, gp('fxstep' + i)); seqRun = (gp('fxseqRun') === 'On'); }
+function seqPatternView() { return delHeld || menu === 6; }
+function paintSteps() {                              /* track view, or the pattern while X is held / FX Seq is open */
+    if (!seqPatternView()) { for (let i = 0; i < NV; i++) enqLED(MoveSteps[i], i === sel ? White : DarkGrey); return; }
+    for (let i = 0; i < 16; i++) {
+        const m = stepMirror[i];
+        let c = m.ext ? DarkOrange : (m.n > 0 ? BrightOrange : Black);
+        if (seqRun && i === fxPos) c = White;
+        if (i === delStepHeld) c = LightGrey;
+        enqLED(MoveSteps[i], c);
+    }
+}
+function sendStepPad(i, k) {                         /* push one pad entry of a step to the DSP */
+    const m = stepMirror[i], l = m.locks[k];
+    sp('fxstep', i + ':' + k + ':' + m.pads[k] + ':' + l[0].toFixed(4) + ':' + l[1].toFixed(4) + ':' + l[2].toFixed(4) + ':' + l[3].toFixed(4) + ':' + m.press[k].toFixed(3));
+}
+function writeStep(i, pads) {                        /* X + pads + step: snapshot the pads' knobs + pressure into the step */
+    const m = stepMirror[i]; m.pads = pads.slice(0, 5); m.locks = []; m.press = []; m.ext = 0; m.chance = defaultChance;
+    for (let k = 0; k < m.pads.length; k++) { m.locks.push(punchVals[m.pads[k]].slice()); m.press.push(padPress[m.pads[k]] || 0); sendStepPad(i, k); }
+    m.n = m.pads.length; sp('fxext', i + ':0'); sp('fxstepn', i + ':' + m.n); sp('fxchance', i + ':' + m.chance);
+    setMsg('Step ' + (i + 1) + ': ' + m.pads.map(x => PUNCH_NAMES[x]).join('+'));
+}
+function clearStep(i) { const m = stepMirror[i]; m.n = 0; m.ext = 0; m.pads = []; m.locks = []; m.press = []; sp('fxstepn', i + ':0'); setMsg('Step ' + (i + 1) + ' cleared'); }
+function setSeqRun(on) { seqRun = on; sp('fxseqRun', on ? '1' : '0'); setMsg(on ? 'FX Seq run' : 'FX Seq stop'); setButtonLED(MoveDelete, on ? WhiteLedBright : WhiteLedDim, true); if (menu === 6) menuReload = true; }
+/* button 2 = Perform, button 3 = Send FX (the table above is written in its original order) */
+{ const t = MENU_DEFS[1]; MENU_DEFS[1] = MENU_DEFS[2]; MENU_DEFS[2] = t; }
 let sessSlot = 1, sessLast = '';
+let sessCurrent = 0;                 /* slot the current session came from / was saved to; 0 = New */
+let sessPending = '', sessPendSlot = 0;   /* 'save' / 'load' in flight, and for which slot */
+let savedBurstAt = 0;                /* wall-clock ms of the last successful save (burst animation) */
+const SAVED_BURST_MS = 900;
 const NSLOTS = 32;
 let sessNames = new Array(NSLOTS + 1).fill('');   /* 1-based; '' = empty slot */
 let confirmSave = false;                          /* overwrite popup pending */
+/* '05_20260914_2130' -> 'Sep 14 21:30' so the slot pill + name fit beside BACK in the footer */
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function prettySess(nm) {
+    const m = /^(\d+)_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})$/.exec(String(nm || ''));
+    if (!m) return nm || '';
+    return (MONTHS[parseInt(m[3], 10) - 1] || m[3]) + ' ' + parseInt(m[4], 10) + ' ' + m[5] + ':' + m[6];
+}
 function pollSessNames() {
     const r = gp('sessNames'); if (!r) return;
     const parts = String(r).split(';');
     for (let i = 1; i <= NSLOTS; i++) sessNames[i] = parts[i - 1] || '';
 }
 function doSessionSave() {
-    sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); confirmSave = false;
+    sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); confirmSave = false; sessPending = 'save'; sessPendSlot = sessSlot;
 }
 let armThreshVal = 0.08;
 let copyHeld = false, loopHeld = false, cloneSrc = -1;
@@ -210,10 +291,10 @@ const PAGE2 = [   /* Loop page 3 / Tone (Right arrow) — Studer EQ + DJ reso + 
 ];
 const HEAD_MODES = ['Off', 'Fwd', 'Bwd', 'Ping'];
 const PAGE3 = [   /* Loop page 4 — Playheads: mode + speed per head (touch one, jog moves it) */
-    { k: 'v_ph1mode', opts: HEAD_MODES, lbl: 'H1' },  { k: 'v_ph1spd', lo: 0, hi: 1, lbl: 'H1spd', clk: true },
-    { k: 'v_ph2mode', opts: HEAD_MODES, lbl: 'H2' },  { k: 'v_ph2spd', lo: 0, hi: 1, lbl: 'H2spd', clk: true },
-    { k: 'v_ph3mode', opts: HEAD_MODES, lbl: 'H3' },  { k: 'v_ph3spd', lo: 0, hi: 1, lbl: 'H3spd', clk: true },
-    { k: 'v_ph4mode', opts: HEAD_MODES, lbl: 'H4' },  { k: 'v_ph4spd', lo: 0, hi: 1, lbl: 'H4spd', clk: true },
+    { k: 'v_ph1mode', opts: HEAD_MODES, lbl: 'H1' },  { k: 'v_ph1spd', lo: 0, hi: 1, lbl: 'H1spd', clk: true, step: 0.1 / 48 },
+    { k: 'v_ph2mode', opts: HEAD_MODES, lbl: 'H2' },  { k: 'v_ph2spd', lo: 0, hi: 1, lbl: 'H2spd', clk: true, step: 0.1 / 48 },
+    { k: 'v_ph3mode', opts: HEAD_MODES, lbl: 'H3' },  { k: 'v_ph3spd', lo: 0, hi: 1, lbl: 'H3spd', clk: true, step: 0.1 / 48 },
+    { k: 'v_ph4mode', opts: HEAD_MODES, lbl: 'H4' },  { k: 'v_ph4spd', lo: 0, hi: 1, lbl: 'H4spd', clk: true, step: 0.1 / 48 },
 ];
 const PAGES = [PAGE0, PAGE1, PAGE2, PAGE3];
 const NPAGES = 4;
@@ -252,6 +333,7 @@ function paintAll(force) {
     for (let i = 0; i < NV; i++) { if (force) setLED(MoveSteps[i], i === sel ? White : DarkGrey, true); else enqLED(MoveSteps[i], i === sel ? White : DarkGrey); }
     setButtonLED(MoveBack, WhiteLedDim, !!force);
     setButtonLED(MoveShift, WhiteLedDim, !!force);
+    setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, !!force);
     paintNav();
     paintTrackLEDs();
 }
@@ -305,6 +387,7 @@ function reloadMenu() {
     for (let i = 0; i < 8; i++) {
         const d = defs[i]; if (!d) { menuVals[i] = 0; continue; }
         if (d.local) { menuVals[i] = sessSlot; continue; }
+        if (d.chance) { menuVals[i] = (delStepHeld >= 0) ? stepMirror[delStepHeld].chance : defaultChance; continue; }
         const r = gp(d.k);
         if (d.opts) { let idx = d.opts.indexOf(r); if (idx < 0) idx = parseInt(r) || 0; menuVals[i] = Math.max(0, Math.min(d.opts.length - 1, idx)); }
         else { const f = parseFloat(r); menuVals[i] = isNaN(f) ? (d.lo || 0) : f; }
@@ -312,12 +395,25 @@ function reloadMenu() {
     menuReload = false;
 }
 function menuKnob(k, delta) {
-    const d = MENU_DEFS[menu][k]; if (!d) return;
-    if (confirmSave) {                /* overwrite popup: knob 8 = YES, knob 5 = NO */
+    if (confirmSave || confirmClear) {   /* popup: knob 8 = YES, knob 5 = NO (those cells have no def, so check first) */
         if (delta === 0) return;
-        if (k === 7) { stampButton(k); doSessionSave(); }
-        else if (k === 4) { stampButton(k); confirmSave = false; setMsg('not saved'); }
-        return;
+        if (k === 7) { stampButton(k); if (confirmClear) { confirmClear = false; sp('fxseqClear', '1'); for (let i = 0; i < 16; i++) clearStep(i); setMsg('Pattern cleared'); paintSteps(); } else doSessionSave(); }
+        else if (k === 4) { stampButton(k); confirmSave = false; confirmClear = false; setMsg('cancelled'); }
+        dirty = true; return;
+    }
+    if (menu === 6 && delStepHeld >= 0 && k >= 4 && stepMirror[delStepHeld].n > 0) {   /* X + step + knobs 5-8: locks of the step's first effect */
+        const m = stepMirror[delStepHeld], pad = m.pads[0], j = k - 4, pe = punchEnum(pad, j); let nv;
+        if (pe) { const st = enumSteps(k, delta); if (st === 0) return; nv = pe.toVal(Math.max(0, Math.min(pe.n - 1, pe.fromVal(m.locks[0][j]) + st))); }
+        else { nv = clampf(0.5 + Math.round((m.locks[0][j] + delta * 0.02 - 0.5) / 0.02) * 0.02, 0, 1); }
+        m.locks[0][j] = nv; sendStepPad(delStepHeld, 0); delUsed = true;
+        lastKnob = k; lastKnobLbl = PUNCH_PARAMS[pad][j]; lastKnobVal = punchDisp(pad, j, nv); return;
+    }
+    const d = MENU_DEFS[menu][k]; if (!d) return;
+    if (d.chance) {                   /* Chance: of the held step, else the default for new steps */
+        const st = enumSteps(k, delta); if (st === 0) return;
+        const idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(menuVals[k]) + st)); menuVals[k] = idx;
+        if (delStepHeld >= 0) { stepMirror[delStepHeld].chance = idx; sp('fxchance', delStepHeld + ':' + idx); } else defaultChance = idx;
+        delUsed = true; lastKnob = k; lastKnobLbl = d.lbl; lastKnobVal = d.opts[idx]; return;
     }
     if (d.local) {                    /* UI-local (session slot): one slot per 4 detents */
         const st = enumSteps(k, delta); if (st === 0) return;
@@ -331,7 +427,8 @@ function menuKnob(k, delta) {
                 if (sessNames[sessSlot]) { confirmSave = true; setMsg('slot ' + sessSlot + ' exists'); }
                 else doSessionSave();
             }
-            else if (d.k === 'sessLoad') { sp('session', 'load:' + sessSlot); setMsg('Loading slot ' + sessSlot); }
+            else if (d.k === 'sessLoad') { sp('session', 'load:' + sessSlot); setMsg('Loading slot ' + sessSlot); sessPending = 'load'; sessPendSlot = sessSlot; }
+            else if (d.k === 'fxseqClear') { confirmClear = true; setMsg('clear pattern?'); }
             else sp(d.k, '1');
             lastKnob = k; lastKnobLbl = d.lbl; lastKnobVal = 'fire';
         }
@@ -341,11 +438,15 @@ function menuKnob(k, delta) {
         const st = enumSteps(k, delta); if (st === 0) return;
         let idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(menuVals[k]) + st));
         menuVals[k] = idx; sp(d.k, d.opts[idx]); lastKnobVal = d.opts[idx];
+        if (d.k === 'fxseqRun') { seqRun = idx === 1; setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
+        if (menu === 6) delUsed = true;
     } else if (d.int) {
-        const step = Math.max(1, Math.round((d.hi - d.lo) * 0.02));
+        if (menu === 6) delUsed = true;
+        const step = d.step || Math.max(1, Math.round((d.hi - d.lo) * 0.02));
         const nv = Math.max(d.lo, Math.min(d.hi, Math.round(menuVals[k] + delta * step)));
         menuVals[k] = nv; sp(d.k, String(nv)); lastKnobVal = String(nv);
     } else {
+        if (menu === 6) delUsed = true;
         const step = (d.hi - d.lo) * 0.02, c = (d.lo + d.hi) / 2;
         let nv = c + Math.round((menuVals[k] + delta * step - c) / step) * step; nv = clampf(nv, d.lo, d.hi);
         menuVals[k] = nv; sp(d.k, nv.toFixed(4)); lastKnobVal = nv.toFixed(2);
@@ -361,7 +462,7 @@ function handleKnobTouch(d1) {
         const d = MENU_DEFS[menu][k]; if (!d) return; lastKnobLbl = d.lbl;
         lastKnobVal = d.local ? String(sessSlot) : d.trig ? '(fire)' : (d.opts ? d.opts[Math.round(menuVals[k])] : (d.int ? String(Math.round(menuVals[k])) : Number(menuVals[k]).toFixed(2)));
     } else if (punchMode && k >= 4 && punchActive >= 0) {
-        const j = k - 4; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchVals[punchActive][j].toFixed(2);
+        const j = k - 4; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, punchVals[punchActive][j]);
     } else if (menu < 0 && !punchMode) {
         const d = PAGES[page()][k]; if (!d) return; lastKnobLbl = d.lbl;
         lastKnobVal = knobInfo(d, k)[1];
@@ -725,6 +826,7 @@ function knobInfo(d, i) {
     if (d.spd)      t = Math.pow(2, raw).toFixed(2) + 'x';
     else if (d.clk) t = (0.25 * Math.pow(16, raw)).toFixed(2) + 'x';
     else if (d.int) t = String(Math.round(raw));
+    else if (d.hold && raw >= 0.99) t = 'Hold';
     else            t = Number(raw).toFixed(2);
     return [isFinite(f) ? f : 0, t];
 }
@@ -855,6 +957,8 @@ const FULL_NAMES = {
     tapeDrive: 'Tape Drive', tapeWow: 'Tape Wow', tapeFlut: 'Tape Flutter', tapeHF: 'Tape HF Loss',
     tapeLoCut: 'Tape Lo Cut', tapeNoise: 'Tape Noise', tapeGen: 'Generations',
     sessSlot: 'Session Slot', sessSave: 'Save Session', sessLoad: 'Load Session',
+    fxseqRun: 'FX Seq Run', fxseqSpeed: 'Step Speed', fxseqLen: 'Pattern Length', fxseqChance: 'Play Chance',
+    fxseqGate: 'Gate', fxseqSwing: 'Swing', fxseqDir: 'Direction', fxseqClear: 'Clear Pattern',
 };
 function fullName(d) { return (d && (FULL_NAMES[d.k] || d.lbl)) || ''; }
 /* The knob grid: loop page, menu, or (with a punch pad held) the held effect's
@@ -864,9 +968,9 @@ function drawKnobView() {
     const ctx = screenCtx();
     const inPunch = (menu < 0 && punchMode && punchActive >= 0);
     let defs, title, scope;
-    if (menu === 5 && confirmSave) {                        /* overwrite popup, drawn as two buttons */
-        drawHeader(ctx, 'OVERWRITE SLOT ' + sessSlot + '?', null, true);
-        fontPrint4x5(ctx, 2, 11, String(sessNames[sessSlot] || '').toUpperCase(), 1);
+    if (confirmSave || confirmClear) {                       /* confirm popup, drawn as two buttons */
+        drawHeader(ctx, confirmClear ? 'CLEAR FX PATTERN?' : 'OVERWRITE SLOT ' + sessSlot + '?', null, true);
+        if (confirmSave) fontPrint4x5(ctx, 2, 11, caps(prettySess(sessNames[sessSlot] || '')), 1);
         drawFooter(ctx, [['K5', 'NO'], ['K8', 'YES']]);
         for (const [i, lbl] of [[4, 'NO'], [7, 'YES']]) {
             const col = i % 4, cellX = col * CELL_W;
@@ -876,8 +980,12 @@ function drawKnobView() {
         host_flush_display(); return;
     }
     let pageName, footer;
-    if (menu >= 0)      { defs = MENU_DEFS[menu]; title = 'LoopBox'; pageName = MENU_NAMES[menu]; scope = 'm' + menu;
-                          footer = (menu === 5) ? [[String(sessSlot), sessNames[sessSlot] || 'empty'], ['Back', 'Exit']] : [['Back', 'Exit']]; }
+    if (menu === 6)     { defs = MENU_DEFS[6]; title = 'FX Seq'; pageName = seqRun ? 'Running' : 'Stopped'; scope = 'm6';
+                          footer = (delStepHeld >= 0) ? [[String(delStepHeld + 1), stepMirror[delStepHeld].n ? stepMirror[delStepHeld].pads.map(x => PUNCH_NAMES[x]).join('+') : 'empty']]
+                                                      : [['X+Pad+Step', 'Write'], ['X', 'Run']]; }
+    else if (menu >= 0) { defs = MENU_DEFS[menu]; title = (menu === 5) ? 'Sessions' : 'LoopBox';
+                          pageName = (menu === 5) ? (sessCurrent > 0 ? 'Session ' + sessCurrent : 'New') : MENU_NAMES[menu]; scope = 'm' + menu;
+                          footer = (menu === 5) ? [[String(sessSlot) + (sessSlot === sessCurrent ? '*' : ''), sessNames[sessSlot] ? prettySess(sessNames[sessSlot]) : 'empty'], ['Back', 'Exit']] : [['Back', 'Exit']]; }
     else if (inPunch)   { defs = null; title = 'Punch'; pageName = PUNCH_NAMES[punchActive]; scope = 'p' + punchActive;
                           footer = [['Press', PUNCH_PRESS[punchActive]]]; }
     else                { defs = PAGES[page()]; title = 'Track ' + (sel + 1) + ' ' + STATE_NAMES[voiceState[sel]]; pageName = PAGE_NAMES[page()]; scope = 't' + sel + 'p' + page();
@@ -885,7 +993,7 @@ function drawKnobView() {
     /* a held knob takes the header over: full name + value, inverted (movyHeaderFor) */
     let hdrL = title, hdrR = pageName, hdrInv = false;
     if (lastKnob >= 0) {
-        if (inPunch && lastKnob >= 4) { hdrL = PUNCH_PARAMS[punchActive][lastKnob - 4]; hdrR = Number(punchVals[punchActive][lastKnob - 4]).toFixed(2); hdrInv = true; }
+        if (inPunch && lastKnob >= 4) { hdrL = PUNCH_PARAMS[punchActive][lastKnob - 4]; hdrR = punchDisp(punchActive, lastKnob - 4, punchVals[punchActive][lastKnob - 4]); hdrInv = true; }
         else if (defs && defs[lastKnob]) { hdrL = fullName(defs[lastKnob]); hdrR = knobInfo(defs[lastKnob], lastKnob)[1]; hdrInv = true; }
     }
     drawHeader(ctx, hdrL, hdrR, hdrInv);
@@ -901,10 +1009,11 @@ function drawKnobView() {
         if (inPunch) {
             /* knobs 1-4 do nothing in punch mode: leave them empty, not misleading */
             if (i < 4) continue;
-            const j = i - 4, v = punchVals[punchActive][j];
-            drawArcKnob(ctx, kx, ky, isFinite(v) ? v : 0);
+            const j = i - 4, v = punchVals[punchActive][j], pe = punchEnum(punchActive, j);
+            if (pe) drawEnumSquare(ctx, kx, ky, pe.disp(pe.fromVal(v)), 'p' + punchActive + ':' + i, pe.fromVal(v));
+            else drawArcKnob(ctx, kx, ky, isFinite(v) ? v : 0);
             drawLabelCell(ctx, cellX, CELL_W, lblY, labelForCell(PUNCH_PARAMS[punchActive][j]),
-                          caps(Number(v).toFixed(2)), touched, touched);
+                          caps(punchDisp(punchActive, j, v)), touched, touched);
             continue;
         }
         const d = defs[i]; if (!d) continue;
@@ -919,7 +1028,26 @@ function drawKnobView() {
         else                        drawArcKnob(ctx, kx, ky, inf[0]);
         drawLabelCell(ctx, cellX, CELL_W, lblY, labelForCell(d.lbl), caps(inf[1]), touched, touched);
     }
+    if (menu === 5 && savedBurstAt > 0 && now() - savedBurstAt < SAVED_BURST_MS) drawSavedBurst(ctx, (now() - savedBurstAt) / SAVED_BURST_MS);
     host_flush_display();
+}
+/* 'SAVED !' in a plate over the grid, with the button-flash rays bursting outward
+ * (same BTN_RAYS idiom as a fired trigger, scaled to the plate). */
+function drawSavedBurst(ctx, progress) {
+    const txt = 'SAVED !', tw = tzWidth(txt), pw = tw + 12, ph = 17;
+    const px0 = Math.floor((SCREEN_W - pw) / 2), py0 = Math.floor((SCREEN_H - ph) / 2);
+    ctx.fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 0);
+    ctx.fillRect(px0, py0, pw, ph, 1);
+    notchCorners(ctx, px0, py0, pw, ph);
+    tzPrint(ctx, px0 + 6, py0 + 5, txt, 0);
+    const cx = px0 + pw / 2, cy = py0 + ph / 2, out = 3 + Math.round(progress * 14), len = 3;
+    const rays = 12, fade = progress < 0.75 ? 1 : 0;
+    if (!fade) return;
+    for (let i = 0; i < rays; i++) {
+        const a = (Math.PI * 2 * i) / rays + progress * 0.6, ux = Math.cos(a), uy = Math.sin(a);
+        const rx = pw / 2 + out, ry = ph / 2 + out;
+        ctx.line(Math.round(cx + ux * rx), Math.round(cy + uy * ry), Math.round(cx + ux * (rx + len)), Math.round(cy + uy * (ry + len)), 1);
+    }
 }
 
 /* ---- Loop waveform (min/max envelope) with the active playheads over it ---- */
@@ -998,7 +1126,9 @@ globalThis.init = function () {
     for (let i = 0; i < NV; i++) voiceState[i] = 0;
     pollStates();
     reloadKnobs();
+    pollSeqMirror();
     paintAll(true);
+    setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true);
 };
 globalThis.onUnload = function () { clearAllLEDs(); };
 globalThis.onResume = function () {
@@ -1015,8 +1145,16 @@ globalThis.tick = function () {
     if (menuReload) reloadMenu();
     if (menu === 5 && tickCount % 4 === 0) {
         const st = gp('sessStatus');
-        if (st && st !== sessLast) { sessLast = st; if (st === 'OK') { needReload = true; menuReload = true; pollSessNames(); }
-            if (st) setMsg('Slot ' + sessSlot + ' ' + st); }
+        if (st && st !== sessLast) { sessLast = st;
+            if (st === 'OK') {
+                needReload = true; menuReload = true; pollSessNames();
+                if (sessPending === 'save') { sessCurrent = sessPendSlot; savedBurstAt = now(); setMsg('Saved !'); }
+                else if (sessPending === 'load') { sessCurrent = sessPendSlot; setMsg('Loaded session ' + sessPendSlot); pollSeqMirror(); setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
+                sessPending = '';
+            }
+            else if (st === 'Empty') { setMsg('Slot ' + sessPendSlot + ' is empty'); sessPending = ''; }
+            else setMsg(st);
+            dirty = true; }
     }
     if (resumeRepaint > 0) { resumeRepaint--; paintAll(true); }   /* force LEDs back after resume */
     if (tickCount % 5 === 0) {                                   /* blink driver for armed / clone-src */
@@ -1029,6 +1167,10 @@ globalThis.tick = function () {
             const on = a.charAt(i) === '1';
             if (on !== armedArr[i]) { armedArr[i] = on; setLED(LEFT_NOTES[i], padColor(i), true); }
         }
+    }
+    if (delHeld) viewUntil = now() + VIEW_MS;
+    if ((seqRun || seqPatternView()) && tickCount % 2 === 0) {
+        const r = gp('fxpat'); if (r) { const np = parseInt(r) ; if (np !== fxPos) { fxPos = isNaN(np) ? -1 : np; if (seqPatternView()) paintSteps(); } }
     }
     if (view !== 'main' && now() >= viewUntil) { view = 'main'; dirty = true; }
     if (view === 'wave') {
@@ -1055,8 +1197,15 @@ globalThis.onMidiMessageInternal = function (data) {
     const status = data[0] & 0xf0, d1 = data[1], d2 = data[2];
 
     if (status === 0xb0) {                          /* CC: knobs + buttons */
-        if (d1 === MoveBack && d2 > 0) { if (confirmSave) { confirmSave = false; setMsg('not saved'); dirty = true; return; } if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); dirty = true; return; } clearAllLEDs(); host_exit_module(); return; }
-        if (d1 === MoveShift) { shiftHeld = d2 > 0; return; }
+        if (d1 === MoveBack && d2 > 0) { if (confirmSave || confirmClear) { confirmSave = false; confirmClear = false; setMsg('cancelled'); dirty = true; return; } if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); dirty = true; return; } clearAllLEDs(); host_exit_module(); return; }
+        if (d1 === MoveShift) { shiftHeld = d2 > 0;
+            if (shiftHeld) for (const i of physHeld) {          /* Shift while a punch pad is held: latch it as it is, pressure included */
+                if (punchLatched[i]) continue;
+                punchLatched[i] = true; pressFrozen[i] = true;
+                sp('punchPress', i + ':' + padPress[i].toFixed(3));
+                setMsg('Latch ' + PUNCH_NAMES[i] + ' @' + Math.round(padPress[i] * 100) + '%'); enqLED(RIGHT_NOTES[i], rightColor(i));
+            }
+            return; }
         if (d1 === MoveMute)  { muteHeld = d2 > 0; paintNav(); return; }     /* Mute modifier (lights the button) */
         if (d1 === MoveCapture && d2 > 0) { openMenu(4); return; }           /* Capture = Tape menu */
         if (d1 === MoveSample) { sampleHeld = d2 > 0; paintNav(); if (d2 === 0) return; }
@@ -1083,10 +1232,26 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 === MoveDown  && d2 > 0) { setPage(loopPage + 1); showView('knobs'); return; }   /* next loop page (shown) */
         if (d1 === MoveUp    && d2 > 0) { setPage(loopPage - 1); showView('knobs'); return; }   /* prev loop page (shown) */
-        if (d1 === MoveUndo  && d2 > 0) {                                    /* Undo the last clear */
-            if (lastCleared >= 0) { spCmd('unclr:' + lastCleared); voiceState[lastCleared] = 2;
-                enqLED(LEFT_NOTES[lastCleared], padColor(lastCleared)); setMsg('T' + (lastCleared + 1) + ' restored'); lastCleared = -1; }
-            else setMsg('nothing to undo');
+        if (d1 === MoveUndo) {                                               /* Undo: last overdub, else last clear */
+            if (d2 > 0) { undoHeld = true; undoUsed = false; setButtonLED(MoveUndo, WhiteLedBright, true); }
+            else { undoHeld = false; setButtonLED(MoveUndo, WhiteLedDim, true); if (!undoUsed) doUndo(); }
+            return;
+        }
+        if (d1 === MoveDelete) {                                              /* X: FX sequencer */
+            if (d2 > 0) { delHeld = true; delUsed = false; delDownAt = now(); delStepHeld = -1;
+                if (menu !== 6) { menu = 6; menuReload = true; paintTrackLEDs(); paintNav(); }
+                showView('knobs'); paintSteps(); dirty = true; }
+            else { delHeld = false; delPads.length = 0; delStepHeld = -1;
+                if (!delUsed) { if (now() - delDownAt < 400) setSeqRun(!seqRun); menu = -1; paintTrackLEDs(); paintNav(); }
+                paintSteps(); dirty = true; }
+            return;
+        }
+        if (d1 === MovePlay && d2 > 0) { sp('fxseq', 'restart'); }             /* transport start: pattern from step 1 (Play also reaches Move) */
+        if (d1 === MoveLeft || d1 === MoveRight) {                            /* tape transport: brake to a stop / wind up to a tone */
+            const dir = (d1 === MoveLeft) ? -1 : 1;
+            sp('tapeHold', d2 > 0 ? String(dir) : '0');
+            setButtonLED(d1, d2 > 0 ? WhiteLedBright : WhiteLedOff, true);
+            if (d2 > 0) setMsg(dir < 0 ? 'tape stop' : 'tape wind'); else setMsg('tape back');
             return;
         }
         const rowIdx = ROW_CCS.indexOf(d1);
@@ -1099,12 +1264,19 @@ globalThis.onMidiMessageInternal = function (data) {
             if (menu >= 0 && MENU_DEFS[menu]) { menuKnob(k, decodeDelta(d2)); showView('knobs'); return; }
             if (punchMode) {                       /* knobs 5-8 (above the right pads) control the held effect */
                 if (k >= 4 && punchActive >= 0) {
-                    const j = k - 4;
-                    let nv = punchVals[punchActive][j] + decodeDelta(d2) * 0.02;
-                    nv = 0.5 + Math.round((nv - 0.5) / 0.02) * 0.02;   /* grid aligned to centre */
-                    nv = clampf(nv, 0, 1);
+                    const j = k - 4, pe = punchEnum(punchActive, j);
+                    let nv;
+                    if (pe) {                                              /* enum cell: one option per 4 detents */
+                        const st = enumSteps(k, decodeDelta(d2)); if (st === 0) return;
+                        const ix = Math.max(0, Math.min(pe.n - 1, pe.fromVal(punchVals[punchActive][j]) + st));
+                        nv = pe.toVal(ix);
+                    } else {
+                        nv = punchVals[punchActive][j] + decodeDelta(d2) * 0.02;
+                        nv = 0.5 + Math.round((nv - 0.5) / 0.02) * 0.02;   /* grid aligned to centre */
+                        nv = clampf(nv, 0, 1);
+                    }
                     punchVals[punchActive][j] = nv; sp('pfx', punchActive + ':' + j + ':' + nv.toFixed(4));
-                    lastKnob = k; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = nv.toFixed(2);
+                    lastKnob = k; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, nv);
                     showView('knobs');
                 }
                 return;
@@ -1170,6 +1342,18 @@ globalThis.onMidiMessageInternal = function (data) {
             enqLED(LEFT_NOTES[i], padColor(i));
             return;
         }
+        if (d1 in STEP_TO_TRACK && (delHeld || menu === 6)) {   /* FX Seq: write / clear / extend / hold-to-edit */
+            const st = STEP_TO_TRACK[d1]; delUsed = true;
+            if (delStepHeld >= 0 && st > delStepHeld) {          /* held step + later step = extension */
+                for (let i = delStepHeld + 1; i <= st; i++) { const m = stepMirror[i]; m.ext = 1; m.n = 0; m.pads = []; sp('fxext', i + ':1'); }
+                setMsg('Step ' + (delStepHeld + 1) + ' held to ' + (st + 1));
+            } else {
+                const pads = physHeld.concat(delPads.filter(x => physHeld.indexOf(x) < 0));
+                if (pads.length) writeStep(st, pads); else clearStep(st);
+                delStepHeld = st; menuReload = true;
+            }
+            paintSteps(); dirty = true; return;
+        }
         if (d1 in STEP_TO_TRACK) {
             const t = STEP_TO_TRACK[d1];
             if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); }
@@ -1180,7 +1364,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 in NOTE_TO_RIGHT) {                  /* punch-in FX: hold to apply, knobs edit it */
             const i = NOTE_TO_RIGHT[d1];
             if (shiftHeld && punchLatched[i]) {     /* Shift+pad on a latched effect = unlatch (stop) */
-                punchLatched[i] = false;
+                punchLatched[i] = false; pressFrozen[i] = false; padPress[i] = 0; pressMax[i] = 0;
                 const hi0 = heldPunch.indexOf(i); if (hi0 >= 0) heldPunch.splice(hi0, 1);
                 const pi0 = physHeld.indexOf(i);  if (pi0 >= 0) physHeld.splice(pi0, 1);
                 sp('punch', 'off:' + i); sp('punchPress', i + ':0');
@@ -1188,8 +1372,18 @@ globalThis.onMidiMessageInternal = function (data) {
                 else { punchActive = -1; punchMode = false; needReload = true; }
                 enqLED(RIGHT_NOTES[i], rightColor(i)); setMsg('Unlatch ' + PUNCH_NAMES[i]); return;
             }
+            if (delHeld) {                           /* X + pad: select it for the next step press (no sound) */
+                if (delPads.indexOf(i) < 0 && delPads.length < 5) delPads.push(i); delUsed = true;
+                enqLED(RIGHT_NOTES[i], White); setMsg('Step: ' + delPads.concat(physHeld).map(x => PUNCH_NAMES[x]).join('+')); return;
+            }
+            if (undoHeld) {                          /* Undo + pad = this effect back to its defaults */
+                punchVals[i] = PUNCH_DEFAULTS[i].slice(); undoUsed = true;
+                for (let j = 0; j < 4; j++) sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4));
+                setMsg('Reset ' + PUNCH_NAMES[i]); dirty = true; return;
+            }
+            pressFrozen[i] = false; padPress[i] = 0; pressMax[i] = 0;   /* a new hold starts with live pressure */
             if (shiftHeld) punchLatched[i] = true;  /* Shift+pad = latch on (stays after release) */
-            if (heldPunch.indexOf(i) < 0 && heldPunch.length < 4) heldPunch.push(i);
+            if (heldPunch.indexOf(i) < 0 && heldPunch.length < 5) heldPunch.push(i);   /* up to 5 in series (NUM_PSLOTS) */
             if (physHeld.indexOf(i) < 0) physHeld.push(i);
             punchActive = i; punchMode = true;
             for (let j = 0; j < 4; j++) sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4)); /* push this pad's params */
@@ -1202,12 +1396,15 @@ globalThis.onMidiMessageInternal = function (data) {
     }
 
     if (status === 0xa0) {                          /* pad pressure -> punch intensity (per held effect) */
-        if (d1 in NOTE_TO_RIGHT) { const i = NOTE_TO_RIGHT[d1]; if (heldPunch.indexOf(i) >= 0) sp('punchPress', i + ':' + (d2 / 127).toFixed(3)); }
+        if (d1 in NOTE_TO_RIGHT) { const i = NOTE_TO_RIGHT[d1];
+            if (delPads.indexOf(i) >= 0) padPress[i] = d2 / 127;   /* pressure of a selected pad becomes the step's lock */
+            if (heldPunch.indexOf(i) >= 0 && !pressFrozen[i]) { padPress[i] = d2 / 127; if (padPress[i] > pressMax[i]) pressMax[i] = padPress[i]; sp('punchPress', i + ':' + padPress[i].toFixed(3)); } }
         return;
     }
 
     if (status === 0x80 || (status === 0x90 && d2 === 0)) {   /* note-off */
         if (d1 < 10) { if (lastKnob === d1) { lastKnob = -1; dirty = true; } return; }   /* knob released */
+        if (d1 in STEP_TO_TRACK) { if (delStepHeld === STEP_TO_TRACK[d1]) { delStepHeld = -1; menuReload = true; paintSteps(); dirty = true; } return; }
         if (d1 in NOTE_TO_LEFT) {
             const i = NOTE_TO_LEFT[d1];
             if (mutePressed[i]) { mutePressed[i] = false; return; }   /* release of a Mute+tap — never clears */
@@ -1221,13 +1418,16 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 in NOTE_TO_RIGHT) {                  /* release punch effect */
             const i = NOTE_TO_RIGHT[d1];
+            { const di = delPads.indexOf(i); if (di >= 0) { delPads.splice(di, 1); enqLED(RIGHT_NOTES[i], rightColor(i)); return; } }   /* was a selection, never engaged */
             /* A latched effect keeps RUNNING, but the knobs go back to the page as
              * soon as no punch pad is physically held — otherwise knobs 5-8 (H3/H4
              * on P4) stay captured by the punch effect indefinitely. */
             const pi = physHeld.indexOf(i); if (pi >= 0) physHeld.splice(pi, 1);
             if (physHeld.length) punchActive = physHeld[physHeld.length - 1];
             else { punchActive = -1; punchMode = false; needReload = true; }
-            if (punchLatched[i]) { enqLED(RIGHT_NOTES[i], rightColor(i)); return; }   /* latched: keep running */
+            if (punchLatched[i]) {                                   /* latched: keep running; a Shift+pad latch keeps the peak pressure of the hold */
+                if (!pressFrozen[i]) { padPress[i] = pressMax[i]; pressFrozen[i] = true; sp('punchPress', i + ':' + padPress[i].toFixed(3)); }
+                enqLED(RIGHT_NOTES[i], rightColor(i)); return; }
             const hi = heldPunch.indexOf(i); if (hi >= 0) heldPunch.splice(hi, 1);
             sp('punch', 'off:' + i); sp('punchPress', i + ':0');
             enqLED(RIGHT_NOTES[i], rightColor(i));
