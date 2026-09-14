@@ -272,13 +272,13 @@ let lastKnob = -1, lastKnobLbl = '', lastKnobVal = '';
 let cpu = '0', loopLen = '0', inPeak = '0';
 
 const PAGE0 = [   /* Loop page 1 (Up arrow) — knob 8 = Send A */
-    { k: 'v_pitch', lo: -2, hi: 2, lbl: 'Pit', spd: true, step: 0.1 / 12 }, { k: 'v_filter', lo: 0, hi: 1, lbl: 'Fil', step: 0.002 },
+    { k: 'v_pitch', lo: -2, hi: 2, lbl: 'Spd', spd: true, step: 0.1 / 12 }, { k: 'v_filter', lo: 0, hi: 1, lbl: 'Fil', step: 0.002 },
     { k: 'v_pan', lo: -1, hi: 1, lbl: 'Pan' },   { k: 'v_volume', lo: 0, hi: 1, lbl: 'Vol' },
     { k: 'v_start', lo: 0, hi: 1, lbl: 'Srt' },  { k: 'v_end', lo: 0, hi: 1, lbl: 'End' },
     { k: 'v_reverse', lo: 0, hi: 1, lbl: 'Rev', e2: ['Nrm', 'Rev'] }, { k: 'v_sendA', lo: 0, hi: 1, lbl: 'SndA' },
 ];
 const PAGE1 = [   /* Loop page 2 (Down arrow) — knobs 6/7 = Scatter/Seed, knob 8 = Send B */
-    { k: 'v_clock', lo: 0, hi: 1, lbl: 'Clk', clk: true },  { k: 'v_djReso', lo: 0, hi: 1, lbl: 'Reso' },
+    { k: 'v_clock', lo: -2, hi: 2, lbl: 'Pit', st: true, step: 0.1 / 12 },  { k: 'v_djReso', lo: 0, hi: 1, lbl: 'Reso' },
     { k: 'v_sat', lo: 0, hi: 1, lbl: 'Sat' },             { k: 'v_comp', lo: 0, hi: 1, lbl: 'Cmp' },
     { k: 'v_wowflut', lo: 0, hi: 1, lbl: 'WF' },          { k: 'v_scatter', lo: 0, hi: 1, lbl: 'Scat' },
     { k: 'v_glitch', lo: 0, hi: 1, lbl: 'Seed' },         { k: 'v_sendB', lo: 0, hi: 1, lbl: 'SndB' },
@@ -823,7 +823,8 @@ function knobInfo(d, i) {
     if (d.e2) return [raw > 0.5 ? 1 : 0, d.e2[raw > 0.5 ? 1 : 0]];
     const f = (raw - d.lo) / ((d.hi - d.lo) || 1);
     let t;
-    if (d.spd)      t = Math.pow(2, raw).toFixed(2) + 'x';
+    if (d.st)       t = (raw * 12 >= 0 ? '+' : '') + (raw * 12).toFixed(1) + 'st';
+    else if (d.spd) t = Math.pow(2, raw).toFixed(2) + 'x';
     else if (d.clk) t = (0.25 * Math.pow(16, raw)).toFixed(2) + 'x';
     else if (d.int) t = String(Math.round(raw));
     else if (d.hold && raw >= 0.99) t = 'Hold';
@@ -939,8 +940,8 @@ function drawFooter(ctx, hints) {
 /* Full parameter names for the touched header (cells keep the abbreviated label). */
 const PAGE_NAMES = ['Loop', 'Texture', 'Tone', 'Heads'];
 const FULL_NAMES = {
-    v_pitch: 'Pitch', v_filter: 'Filter', v_pan: 'Pan', v_volume: 'Volume', v_start: 'Start', v_end: 'End',
-    v_reverse: 'Reverse', v_sendA: 'Send A', v_clock: 'Clock', v_djReso: 'Resonance', v_sat: 'Saturation',
+    v_pitch: 'Speed', v_filter: 'Filter', v_pan: 'Pan', v_volume: 'Volume', v_start: 'Start', v_end: 'End',
+    v_reverse: 'Reverse', v_sendA: 'Send A', v_clock: 'Pitch', v_djReso: 'Resonance', v_sat: 'Saturation',
     v_comp: 'Compressor', v_wowflut: 'Wow/Flutter', v_scatter: 'Scatter', v_glitch: 'Seed', v_sendB: 'Send B',
     v_eqBass: 'Bass', v_eqPresFrq: 'Mid Freq', v_eqPresAmt: 'Mid Gain', v_eqTreble: 'Treble', v_tilt: 'Tilt',
     v_atk: 'Attack', v_rel: 'Release', _heads: 'Playheads',
@@ -1296,7 +1297,7 @@ globalThis.onMidiMessageInternal = function (data) {
             nv = clampf(nv, def.lo, def.hi);
             knobVals[k] = nv;
             if (def.e2) { sp(def.k, nv > 0.5 ? '1' : '0'); lastKnobVal = def.e2[nv > 0.5 ? 1 : 0]; }
-            else { sp(def.k, nv.toFixed(4)); lastKnobVal = def.spd ? Math.pow(2, nv).toFixed(2) + 'x' : (def.clk ? (0.25 * Math.pow(16, nv)).toFixed(2) + 'x' : nv.toFixed(2)); }
+            else { sp(def.k, nv.toFixed(4)); lastKnobVal = def.st ? ((nv * 12 >= 0 ? '+' : '') + (nv * 12).toFixed(1) + 'st') : def.spd ? Math.pow(2, nv).toFixed(2) + 'x' : (def.clk ? (0.25 * Math.pow(16, nv)).toFixed(2) + 'x' : nv.toFixed(2)); }
             lastKnob = k; lastKnobLbl = def.lbl; showView('knobs');
         }
         return;

@@ -13,7 +13,7 @@ and a MIDI-keyboard polyphony layer.
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
 - **Module:** `loopbox` · **Name:** LoopBox · **Abbrev:** LBX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.6.0 · **License:** GPL-3.0
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.6.1 · **Manual:** [docs/MANUAL.md](docs/MANUAL.md) · **License:** GPL-3.0
 
 ---
 
@@ -50,11 +50,14 @@ Navigate with **Down** (next) and **Up** (previous).
 
 | Page | Knobs |
 |------|-------|
-| **P1 · Main** | Pitch · Filter · Pan · Volume · Start · End · Reverse · **Send A** |
-| **P2 · Texture** | Clock · **Reso** · Sat · Comp · Wow/Flutter · Scatter · **Seed** · Send B (Clock and Comp are per-track) |
+| **P1 · Loop** | **Speed** · Filter · Pan · Volume · Start · End · Reverse · **Send A** |
+| **P2 · Texture** | **Pitch** · **Reso** · Sat · Comp · Wow/Flutter · Scatter · **Seed** · Send B |
 | **P3 · Tone** | Studer **Bass · MidF · MidGain · Treble** · Tilt · Attack · Decay · **Heads ▸** |
 | **P4 · Playheads** | H1 mode/speed · H2 · H3 · H4 |
 
+- **Speed** — playback rate, ±2 octaves in 0.1-semitone steps (pitch and tempo together, like tape).
+- **Pitch** — an independent shift, −24 to +24 semitones, tempo untouched: a Signalsmith Stretch
+  phase-vocoder shifter whose latency is cancelled by nudging the playheads, so the loop stays in time.
 - **Seed** — a Smack-style *seeded slice re-order* (2/4/8/16 slices, some reversed). The knob
   *is* the seed: every position is a different reproducible mangle, click-free.
 - **Scatter** — stochastic slice jumps, crossfaded.
@@ -160,14 +163,14 @@ menu shows the **full 8-knob page**; pressing a step (or scrubbing) shows the lo
 Record path: input -> preamp/tape model -> tape drive -> input EQ -> HF rolloff / low cut
              -> wow + flutter -> generations -> [loop buffers]
 
-Per voice:   4 playheads -> Seed slice re-order -> saturation -> wow/flutter
-             -> DJ filter (+reso) -> tilt EQ -> Studer 962 EQ -> stability
-             -> amp env -> pan/vol -> sends A/B
+Per voice:   4 playheads -> Seed slice re-order -> Scatter -> Pitch (Stretch) -> saturation
+             -> wow/flutter -> DJ filter (+reso) -> tilt EQ -> Studer 962 EQ -> stability
+             -> compressor -> amp env -> tape transport -> pan/vol -> sends A/B
 
-Master:      sum of voices + MIDI-poly -> input monitor -> clock SR-degradation
-             -> + Palette send returns -> global saturation -> master wow/flutter
-             -> compressor -> lo/hi cut -> Stumble -> dropout
-             -> punch-FX (4 in series) -> master out -> soft limiter -> output
+Master:      sum of voices + MIDI-poly -> input monitor -> + Palette send returns
+             -> global saturation -> master wow/flutter -> compressor -> lo/hi cut
+             -> Stumble -> dropout -> punch-FX (5 in series) -> master out
+             -> soft limiter -> output
 ```
 
 ---

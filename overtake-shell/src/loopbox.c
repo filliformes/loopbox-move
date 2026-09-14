@@ -43,6 +43,9 @@
 #include <sys/stat.h>
 #include "plugin_api_v1.h"
 #include "palette_fx.h"   /* 24-effect Palette engine for the send buses */
+/* pitch_shift.cc — Signalsmith Stretch behind a C API (per-loop Pitch) */
+void *ps_create(float sr, int blockMax, int staggerSamples); void ps_destroy(void *h); void ps_reset(void *h);
+int ps_latency(void *h); void ps_set_semitones(void *h, float semitones); void ps_process(void *h, float *l, float *r, int n);
 
 static const host_api_v1_t *g_host = NULL;
 
@@ -134,19 +137,20 @@ static inline void apply_preamp_sample(double *l, double *r, int model, double *
 
 /* ---- Global effects ---- */
 static inline double global_saturate(double x, double amt) {
-    if(amt<0.005)return x;double gain=1.0+amt*4.0;x*=gain;
+    if(amt<0.005)return x;double x0=x,gain=1.0+amt*4.0;x*=gain;
     double br=fabs(x);if(br>1.5707963)br=1.5707963;br=sin(br);x=(x>0.0)?br:-br;
-    double bump=sin(x*0.3)*amt*0.08;x=(x+bump)/(gain*0.45+0.55);return x;
+    double bump=sin(x*0.3)*amt*0.08;x=(x+bump)/(gain*0.45+0.55);
+    double w=(amt<0.05)?amt/0.05:1.0; return x0+(x-x0)*w;   /* blend in: no curve step when the knob leaves 0 */
 }
 /* clock 0.5 = 1.0x (normal), 0 = 0.25x, 1 = 4.0x — so loops default to normal speed */
-static inline double clock_to_speed(float clock) { return 0.25*pow(16.0,(double)clock); }
 static inline double apply_stability(double x, double amt, uint32_t *rng) {
-    if(amt<0.005)return x;x=lb_tanh(x*(1.0+amt*0.3));x+=lb_rand(rng)*amt*0.015;return x;
+    if(amt<0.005)return x;double x0=x;x=lb_tanh(x*(1.0+amt*0.3));x+=lb_rand(rng)*amt*0.015;
+    double w=(amt<0.05)?amt/0.05:1.0; return x0+(x-x0)*w;
 }
 
 /* One read head over a loop: 0=off 1=fwd 2=bwd 3=ping-pong. Head 0 shares the
  * voice's playPhase (so scatter/Seed/scrub/jump keep driving it). */
-typedef struct { int mode; float spd, spdCache; double mult, phase, env; int dir; } Playhead;
+typedef struct { int mode; float spd, spdCache; double mult, phase, env; int dir; double xfPhase; int xf; } Playhead;   /* xf: samples left of a jump crossfade */
 typedef enum { OD_REPLACE=0, OD_MULTIPLY=1, OD_DISINTEGRATION=2 } OverdubMode;
 typedef enum { VS_EMPTY=0, VS_RECORDING, VS_PLAYING, VS_PAUSED, VS_OVERDUBBING } VoiceState;
 
@@ -177,8 +181,10 @@ typedef struct {
     float filterSm; double volSm, panSm;  /* 10ms smoothing on the steppy knobs */
     int savedLoopLen;                     /* clear-undo: last loop length before a clear */
     float djReso;                         /* DJ filter resonance (Q) */
-    float comp, clock;                    /* per-track compressor amount, per-track clock (0.5 = 1x) */
-    double cEnvL, cEnvR, ckHoldL, ckHoldR; int ckCnt;
+    float comp, clock;                    /* per-track compressor amount; clock = independent PITCH shift in octaves (-2..2), not the playback rate */
+    void *ps; float psInL[128], psInR[128], psOutL[128], psOutR[128];   /* Signalsmith Stretch (pitch_shift.cc), one block late */
+    int psActive, psWarm, psLat, psNudge; double psMix; float psCache;            /* engage state: warm-up count, latency, dry/wet ramp */
+    double cEnvL, cEnvR;
     float ampAtk, ampRel;                 /* amp envelope attack/release times (0..1) */
     float ampAtkK, ampRelK, ampAtkCache, ampRelCache;  /* cached one-pole coeffs */
 } Voice;
@@ -247,6 +253,7 @@ typedef struct {
     float ringL[PUNCH_BUF], ringR[PUNCH_BUF]; int w;
     double readPhase, sliceStart, sliceLen;
     double dPow, wPow, mkGain;                  /* loudness match: dry vs wet power, makeup in use */
+    int restartPend; float pSm[4];              /* retrigger queued behind a quick fade; smoothed knob values */
     double elCur, sliceStartT, pressSm;         /* slice length in use (changes only at a wrap), pending start, smoothed pad pressure */
     Biquad toneFilt;
     /* granular pool (Haze / Mosaic / Smear / Strum / Stretch share it) */
@@ -539,7 +546,7 @@ static inline void master_comp(double *l, double *r, double amt, double *envL, d
     *envL=*envR=env;double thDb=-6.0-amt*18.0,db=20.0*log10(env+1e-12);
     double ratio=2.0+amt*6.0;
     if(db>thDb){double gr=(db-thDb)*(1.0-1.0/ratio);
-        double gain=pow(10.0,-gr/20.0);*l*=gain;*r*=gain;}
+        double gain=pow(10.0,-gr/20.0); double w=(amt<0.05)?amt/0.05:1.0; gain=1.0+(gain-1.0)*w; *l*=gain;*r*=gain;}
     /* Makeup gain: compensate for gain reduction */
     double mk=(amt<0.05)?amt/0.05:1.0;   /* fade the makeup in: no level step when the knob leaves 0 */
     double makeupDb=(0.0-thDb)*(1.0-1.0/ratio)*0.5*mk;
@@ -581,7 +588,8 @@ static double punch_slice_len(const PunchDef *d, const float *P, double beat){
 }
 /* Start a slot on effect idx, using that effect's stored params (s->punchParams[idx]). */
 static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
-    ps->idx=idx; ps->env=0.0; ps->releasing=0; const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
+    ps->idx=idx; ps->env=0.0; ps->releasing=0; ps->restartPend=0; const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
+    memcpy(ps->pSm,P,sizeof ps->pSm);   /* no glide on engage: start at the pad's values */
     ps->elCur=0.0; ps->sliceStartT=-1.0; ps->pressSm=0.0; ps->dPow=ps->wPow=0.0; ps->mkGain=1.0;
     double beat=punch_beat();
     if(ps->gRng==0)ps->gRng=0x1234567u+(uint32_t)idx*2654435761u;
@@ -626,7 +634,9 @@ static inline int punch_holds_ring(const loopbox_t *s, const PunchSlot *ps){
 }
 static void punch_on(loopbox_t *s, int idx){
     if(idx<0||idx>=NUM_PUNCH)return;
-    for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx){ punch_slot_start(s,&s->pslot[i],idx); return; }  /* retrigger (also un-releases) */
+    for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx){ PunchSlot *ps=&s->pslot[i];   /* retrigger (also un-releases) */
+        if(ps->releasing||ps->env<0.05){ punch_slot_start(s,ps,idx); } else ps->restartPend=1;   /* running: fade down first, restart in render */
+        return; }
     for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx<0){ punch_slot_start(s,&s->pslot[i],idx); return; }      /* first free */
 }
 static void punch_off(loopbox_t *s, int idx){
@@ -634,7 +644,7 @@ static void punch_off(loopbox_t *s, int idx){
 }
 /* per-block: set each active slot's tone LP coeffs from its effect's Tone param */
 static void punch_prep(loopbox_t *s){
-    for(int i=0;i<NUM_PSLOTS;i++){ PunchSlot *ps=&s->pslot[i]; if(ps->idx<0)continue; float t=s->punchParams[ps->idx][2];
+    for(int i=0;i<NUM_PSLOTS;i++){ PunchSlot *ps=&s->pslot[i]; if(ps->idx<0)continue; float t=ps->pSm[2];
         if(t<0.98f){ double cut=500.0*pow(18000.0/500.0,(double)t); bq_set_lp(&ps->toneFilt,cut,0.707); } }
 }
 
@@ -712,7 +722,9 @@ static inline void punch_grains_out(PunchSlot *ps, double *sl, double *sr){
 /* per-sample: one slot reads its own ring and produces wet (ring already written by caller).
  * Pressure (s->punchPress) drives each effect's most musical parameter — see the UI map. */
 static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double *outL, double *outR){
-    const PunchDef *d=&PUNCH_DEFS[ps->idx]; float *P=s->punchParams[ps->idx]; int toneOn=(P[2]<0.98f);
+    const PunchDef *d=&PUNCH_DEFS[ps->idx];
+    for(int j=0;j<4;j++) ps->pSm[j]+=(s->punchParams[ps->idx][j]-ps->pSm[j])*0.004f;   /* ~6 ms: knob detents do not step the sound */
+    float *P=ps->pSm; int toneOn=(P[2]<0.98f);
     if(d->mech==PM_PALETTE){   /* one Palette effect as a punch: this block in, last block out */
         ps->pinL[n]=ps->ringL[ps->w]; ps->pinR[n]=ps->ringR[ps->w];
         *outL=(double)ps->poutL[n]; *outR=(double)ps->poutR[n]; return; }
@@ -856,8 +868,17 @@ static inline void vbuf_read(Voice *v,double ph,double *l,double *r){
     *r=((double)v->bufferR[i0]*(1.0-f)+(double)v->bufferR[i1]*f)/32768.0;
 }
 
+/* Move a playhead by d samples click-free: head 0 through the scatter crossfade,
+ * heads 1-3 through their own 64-sample crossfade from the old position. */
+static inline void head_jump(Voice *v, int k, double d){
+    double L=(double)v->loopLen; if(L<1.0)return;
+    if(k==0){ v->scatXfadePhase=v->playPhase; v->scatXfade=64; v->playPhase+=d;
+        while(v->playPhase>=L)v->playPhase-=L; while(v->playPhase<0.0)v->playPhase+=L; return; }
+    Playhead *P=&v->ph[k]; P->xfPhase=P->phase; P->xf=64; P->phase+=d;
+    while(P->phase>=L)P->phase-=L; while(P->phase<0.0)P->phase+=L;
+}
 /* ---- Voice Render (stereo) ---- */
-static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, double *sendAL, double *sendAR, double *sendBL, double *sendBR) {
+static void voice_render(Voice *v, loopbox_t *s, int n, double *outL, double *outR, double *sendAL, double *sendAR, double *sendBL, double *sendBR) {
     *outL=*outR=*sendAL=*sendAR=*sendBL=*sendBR=0.0;
     int playing=(v->state==VS_PLAYING||v->state==VS_OVERDUBBING);
     int scrubbing=(v->scrubTimer>0);
@@ -866,8 +887,7 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
     int avail=v->loopLen-effStart; if(avail<1)avail=1;                 /* End is loop LENGTH from Start */
     int effLen=(int)(v->loopEnd*(float)avail); if(effLen<256)effLen=256; if(effLen>avail)effLen=avail;
     int effEnd=effStart+effLen;
-    double vcs=clock_to_speed(v->clock);
-    double rate=pow(2.0,(double)v->pitch)*vcs*s->tapeSpd;if(v->reverse>0.5f)rate=-rate;
+    double rate=pow(2.0,(double)v->pitch)*s->tapeSpd;if(v->reverse>0.5f)rate=-rate;
     if(s->scanTimer>0)rate*=3.5;   /* Perform: Scan gesture (fast sweep) */
     if(scrubbing){ rate=v->scrubRate; v->scrubTimer--; }   /* jog rocks the tape, audibly */
     /* head 0 mode/speed */
@@ -932,6 +952,10 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
         if(P->env<0.0005&&P->mode==0) continue;
         if(P->spd!=P->spdCache){ P->mult=0.25*pow(16.0,(double)P->spd); P->spdCache=P->spd; }
         double hl,hr; vbuf_read(v,P->phase,&hl,&hr);
+        if(P->xf>0){ double ol,orr; vbuf_read(v,P->xfPhase,&ol,&orr); double w=(double)P->xf/64.0;   /* jump crossfade */
+            hl=hl*(1.0-w)+ol*w; hr=hr*(1.0-w)+orr*w;
+            if(playing||scrubbing) P->xfPhase+=baseRate*P->mult*((P->mode==2)?-1.0:(P->mode==3)?(double)P->dir:1.0);
+            P->xf--; }
         double hrel=P->phase-(double)effStart;
         while(hrel<0)hrel+=(double)effLen; while(hrel>=(double)effLen)hrel-=(double)effLen;
         double hbf=1.0; if(hrel<_FD)hbf=hrel/_FD; else if(hrel>(double)effLen-_FD)hbf=((double)effLen-hrel)/_FD;
@@ -945,6 +969,25 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
             else { while(P->phase>=(double)effEnd)P->phase-=(double)effLen;
                    while(P->phase<(double)effStart)P->phase+=(double)effLen; } } }
     if(envSum>1.0){ double nrm=1.0/sqrt(envSum); rawL*=nrm; rawR*=nrm; }   /* keep level sane as heads stack */
+    /* Pitch (P2 knob 1): Signalsmith Stretch, independent of the playback rate.
+     * The shifter runs one 128-frame block late (psIn this block -> psOut next block).
+     * Engage: feed it, wait its latency, then crossfade to its output while nudging
+     * every playhead forward by that latency so the loop stays in time. Disengage:
+     * crossfade back and nudge the heads back. */
+    { int want=(v->clock>0.005f||v->clock<-0.005f);
+      if(want&&!v->psActive&&v->ps){ v->psActive=1; v->psWarm=0; v->psMix=0.0; ps_reset(v->ps); v->psLat=ps_latency(v->ps)+128; v->psCache=-99.0f; }
+      if(v->psActive){
+        if(v->clock!=v->psCache&&want){ ps_set_semitones(v->ps,v->clock*12.0f); v->psCache=v->clock; }
+        v->psInL[n]=(float)rawL; v->psInR[n]=(float)rawR;
+        double target=0.0;
+        if(want){ if(v->psWarm<v->psLat){ v->psWarm++; if(v->psWarm==v->psLat) v->psNudge=v->psLat; } else target=1.0; }
+        else if(v->psWarm>=0){ v->psWarm=-1; v->psNudge=-v->psLat; }   /* once: the dry stream goes back where it was */
+        v->psMix+=(target-v->psMix)*0.004;   /* ~6 ms ramp */
+        if(v->psNudge){ double d=(double)v->psNudge; v->psNudge=0;   /* keep time: the shifted stream lags by psLat */
+            for(int k=0;k<4;k++) head_jump(v,k,d); }
+        rawL=rawL*(1.0-v->psMix)+(double)v->psOutL[n]*v->psMix; rawR=rawR*(1.0-v->psMix)+(double)v->psOutR[n]*v->psMix;
+        if(!want&&v->psMix<0.0005){ v->psActive=0; v->psMix=0.0; }
+      } }
     double _amp=v->playEnv*_bf;
     double sL=rawL,sR=rawR;
     sL=voice_saturate(sL,(double)v->saturation);sR=voice_saturate(sR,(double)v->saturation);
@@ -956,9 +999,6 @@ static void voice_render(Voice *v, loopbox_t *s, double *outL, double *outR, dou
         v->stabLpStateL+=stabK*(sL-v->stabLpStateL);sL=v->stabLpStateL;
         v->stabLpStateR+=stabK*(sR-v->stabLpStateR);sR=v->stabLpStateR;}
     /* Per-track clock degradation (SR hold + aliasing hiss, Mood-style) and compressor. */
-    if(vcs<0.99){ int df=(int)(1.0/vcs); if(df<1)df=1; if(df>4)df=4;
-        v->ckCnt++; if(v->ckCnt>=df){ v->ckHoldL=sL; v->ckHoldR=sR; v->ckCnt=0; } sL=v->ckHoldL; sR=v->ckHoldR;
-        double degr=1.0-vcs, nA=degr*degr*0.012; sL+=lb_rand(&v->rng)*nA; sR+=lb_rand(&v->rng)*nA; }
     master_comp(&sL,&sR,(double)v->comp,&v->cEnvL,&v->cEnvR);
     sL*=s->tapeGain; sR*=s->tapeGain;
     v->volSm+=((double)v->volume-v->volSm)*0.00227;   /* ~10ms smoothing (no zipper) */
@@ -1053,7 +1093,8 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         v->tiltEQ=0.0f;v->decay=1.0f;v->eqBass=0.0f;v->eqPresFreq=0.5f;v->eqPresAmt=0.0f;v->eqTreble=0.0f;
         v->flutNextMax=0.5;v->rng=12345+i*7919;v->glLastSlice=-1;
         v->djReso=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;
-        v->comp=0.0f;v->clock=0.5f;
+        v->comp=0.0f;v->clock=0.0f;v->psCache=-99.0f;v->psActive=0;v->psMix=0.0;v->psNudge=0;
+        v->ps=ps_create(44100.0f,128,(i*512)/NUM_VOICES);   /* staggered so the 16 STFTs do not land in one callback */
         v->filterSm=0.5f;v->volSm=(double)v->volume;v->panSm=0.0;
         /* heads: 1 on @1x, 2 off @0.5x, 3 off @2x, 4 off @1x  (spd: 0.5=1x, 0.25=0.5x, 0.75=2x) */
         for(int k=0;k<4;k++){ v->ph[k].mode=0; v->ph[k].dir=1; v->ph[k].env=0.0; v->ph[k].phase=0.0; v->ph[k].spdCache=-1.0f; }
@@ -1105,7 +1146,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
 static void destroy_instance(void *inst){loopbox_t *s=(loopbox_t*)inst;if(!s)return;
     if(s->sio.active){ atomic_store(&s->sio.cancel,1); atomic_store(&s->sio.request,1); /* wake */
         pthread_join(s->sio.th,NULL); s->sio.active=0; }   /* join BEFORE freeing buffers */
-    for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);}
+    for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);ps_destroy(s->voice[i].ps);}
     if(s->busA)pfx_destroy(s->busA); if(s->busB)pfx_destroy(s->busB); if(s->punchFx)pfx_destroy(s->punchFx);
     free(s->undoL); free(s->undoR); free(s->undoGen); free(s);}
 
@@ -1284,7 +1325,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
 
         double mixL=0.0,mixR=0.0,sAL=0.0,sAR=0.0,sBL=0.0,sBR=0.0;
         for(int vi=0;vi<NUM_VOICES;vi++){double vL,vR,aL,aR,bL,bR;
-            voice_render(&s->voice[vi],s,&vL,&vR,&aL,&aR,&bL,&bR);mixL+=vL;mixR+=vR;sAL+=aL;sAR+=aR;sBL+=bL;sBR+=bR;}
+            voice_render(&s->voice[vi],s,n,&vL,&vR,&aL,&aR,&bL,&bR);mixL+=vL;mixR+=vR;sAL+=aL;sAR+=aR;sBL+=bL;sBR+=bR;}
         poly_sample(s,&mixL,&mixR,&sAL,&sAR,&sBL,&sBR);   /* MIDI-keyboard poly layer */
         if(s->inputMonitor>0.005f){double mg=(double)s->inputMonitor;mixL+=inL*mg;mixR+=inR*mg;}
 
@@ -1315,8 +1356,9 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
                         double cap=(PUNCH_DEFS[ps->idx].mech==PM_CHOP)?1.4:2.5; if(tg>cap)tg=cap; if(tg<1.0)tg=1.0; }
                     ps->mkGain+=(tg-ps->mkGain)*0.002; wl*=ps->mkGain; wr*=ps->mkGain; }
                   if(hold){ ps->w--; if(ps->w<0)ps->w=PUNCH_BUF-1; }                          /* net: w stays put while holding */
-                  ps->env += ((ps->releasing?0.0:1.0)-ps->env)*0.003;  /* ~7ms engage/release fade (1ms clicked on gated FX) */
-                  float *P=s->punchParams[ps->idx]; double em=(PUNCH_DEFS[ps->idx].mech==PM_PALETTE)?ps->env:((double)P[3]+(1.0-(double)P[3])*(double)s->punchPress[ps->idx])*ps->env; if(em>1.0)em=1.0;
+                  if(ps->restartPend&&!ps->releasing){ ps->env+=(0.0-ps->env)*0.06; if(ps->env<0.01) punch_slot_start(s,ps,ps->idx); }   /* queued retrigger */
+                  else ps->env += ((ps->releasing?0.0:1.0)-ps->env)*0.003;  /* ~7ms engage/release fade (1ms clicked on gated FX) */
+                  float *P=ps->pSm; double em=(PUNCH_DEFS[ps->idx].mech==PM_PALETTE)?ps->env:((double)P[3]+(1.0-(double)P[3])*ps->pressSm)*ps->env; if(em>1.0)em=1.0;
                   xl=xl+(wl-xl)*em; xr=xr+(wr-xr)*em;
                   if(ps->releasing && ps->env<0.004) ps->idx=-1; }
               ps->w++; if(ps->w>=PUNCH_BUF)ps->w=0; }
@@ -1333,10 +1375,14 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     if(s->busB&&!atomic_load(&s->fxBusy[1])){ pfx_process(s->busB,s->sbufBL,s->sbufBR,frames,s->sendBM1,s->sendBM2,s->sendBDrift);
         memcpy(s->sretBL,s->sbufBL,(size_t)frames*sizeof(float)); memcpy(s->sretBR,s->sbufBR,(size_t)frames*sizeof(float)); }
     else { memset(s->sretBL,0,(size_t)frames*sizeof(float)); memset(s->sretBR,0,(size_t)frames*sizeof(float)); }
+    /* Per-loop pitch shifters: this block's input becomes next block's output (one block late) */
+    for(int vi=0;vi<NUM_VOICES;vi++){ Voice *v=&s->voice[vi]; if(!v->psActive||!v->ps)continue;
+        memcpy(v->psOutL,v->psInL,sizeof v->psOutL); memcpy(v->psOutR,v->psInR,sizeof v->psOutR);
+        ps_process(v->ps,v->psOutL,v->psOutR,frames); }
     /* Palette punch slot: process the block it captured, ready for the next one */
     for(int si=0;si<NUM_PSLOTS;si++){ PunchSlot *ps=&s->pslot[si]; if(ps->idx<0||PUNCH_DEFS[ps->idx].mech!=PM_PALETTE)continue;
         memcpy(ps->poutL,ps->pinL,sizeof ps->poutL); memcpy(ps->poutR,ps->pinR,sizeof ps->poutR);
-        float *P=s->punchParams[ps->idx]; float amt=P[1]+(1.0f-P[1])*s->punchPress[ps->idx];   /* pressure pushes Amount */
+        float *P=ps->pSm; float amt=P[1]+(1.0f-P[1])*(float)ps->pressSm;   /* pressure pushes Amount */
         if(s->punchFx&&!atomic_load(&s->fxBusy[2])) pfx_process(s->punchFx,ps->poutL,ps->poutR,frames,amt,P[2],P[3]);
         else { memset(ps->poutL,0,sizeof ps->poutL); memset(ps->poutR,0,sizeof ps->poutR); } }
 
@@ -1533,9 +1579,7 @@ static void set_param(void *inst, const char *key, const char *val) {
         if(hi==0){ v->scatXfadePhase=v->playPhase; v->scatXfade=64; v->playPhase+=mv;
             while(v->playPhase>=(double)v->loopLen)v->playPhase-=(double)v->loopLen;
             while(v->playPhase<0.0)v->playPhase+=(double)v->loopLen; }
-        else { v->ph[hi].phase+=mv;
-            while(v->ph[hi].phase>=(double)v->loopLen)v->ph[hi].phase-=(double)v->loopLen;
-            while(v->ph[hi].phase<0.0)v->ph[hi].phase+=(double)v->loopLen; }
+        else head_jump(v,hi,mv);
         return; }
     if(strcmp(key,"rootNote")==0){s->rootNote=(int)lb_clampf((float)atof(val),24.0f,96.0f); return;}
     if(strcmp(key,"selTrack")==0){s->selTrack=(int)lb_clampf((float)atof(val),1.0f,16.0f);return;}
@@ -1567,7 +1611,7 @@ static void set_param(void *inst, const char *key, const char *val) {
         if(strcmp(sub,"spd")==0){ v->ph[hi].spd=lb_clampf((float)atof(val),0.0f,1.0f); return; }
         return; }
     if(strcmp(key,"v_djReso")==0){v->djReso=lb_clampf((float)atof(val),0.0f,1.0f);dj_filter_update(v);return;}
-    SETVFR("v_comp",comp,0.0,1.0) SETVFR("v_clock",clock,0.0,1.0)
+    SETVFR("v_comp",comp,0.0,1.0) SETVFR("v_clock",clock,-2.0,2.0)
     /* State restore: indexed voice params v0.pitch=0.0 ... v15.volume=0.8 */
     if(key[0]=='v'&&key[1]>='0'&&key[1]<='9'){
         int vi=-1;const char *sub=NULL;
@@ -1595,7 +1639,7 @@ static void set_param(void *inst, const char *key, const char *val) {
             else if(strcmp(sub,"atk")==0)vr->ampAtk=lb_clampf(fv,0,1);
             else if(strcmp(sub,"rel")==0)vr->ampRel=lb_clampf(fv,0,1);
             else if(strcmp(sub,"cmp")==0)vr->comp=lb_clampf(fv,0,1);
-            else if(strcmp(sub,"clk")==0)vr->clock=lb_clampf(fv,0,1);
+            else if(strcmp(sub,"pit2")==0)vr->clock=lb_clampf(fv,-2,2);   /* old "clk" (a rate) is ignored: not the same parameter any more */
             else if(strcmp(sub,"ph")==0){ int m[4]; float sp[4];
                 if(sscanf(val,"%d,%f,%d,%f,%d,%f,%d,%f",&m[0],&sp[0],&m[1],&sp[1],&m[2],&sp[2],&m[3],&sp[3])==8)
                     for(int k=0;k<4;k++){ vr->ph[k].mode=(m[k]<0||m[k]>3)?0:m[k];
@@ -1675,7 +1719,7 @@ static const char *CHAIN_PARAMS_JSON =
     "{\"key\":\"v_eqPresFrq\",\"name\":\"MidF\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
     "{\"key\":\"v_eqPresAmt\",\"name\":\"MidG\",\"type\":\"float\",\"min\":-1,\"max\":1,\"step\":0.01},"
     "{\"key\":\"v_eqTreble\",\"name\":\"Treble\",\"type\":\"float\",\"min\":-1,\"max\":1,\"step\":0.01},"
-    "{\"key\":\"v_pitch\",\"name\":\"Pitch\",\"type\":\"float\",\"min\":-2,\"max\":2,\"step\":0.01},"
+    "{\"key\":\"v_pitch\",\"name\":\"Speed\",\"type\":\"float\",\"min\":-2,\"max\":2,\"step\":0.01},"
     "{\"key\":\"v_filter\",\"name\":\"Filter\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
     "{\"key\":\"v_pan\",\"name\":\"Pan\",\"type\":\"float\",\"min\":-1,\"max\":1,\"step\":0.01},"
     "{\"key\":\"v_volume\",\"name\":\"Vol\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
@@ -1684,7 +1728,7 @@ static const char *CHAIN_PARAMS_JSON =
     "{\"key\":\"v_atk\",\"name\":\"Atk\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
     "{\"key\":\"v_rel\",\"name\":\"Rel\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
     "{\"key\":\"v_comp\",\"name\":\"Comp\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01},"
-    "{\"key\":\"v_clock\",\"name\":\"Clock\",\"type\":\"float\",\"min\":0,\"max\":1,\"step\":0.01}]";
+    "{\"key\":\"v_clock\",\"name\":\"Pitch\",\"type\":\"float\",\"min\":-2,\"max\":2,\"step\":0.01}]";
 
 static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     loopbox_t *s=(loopbox_t*)inst;if(!key)return -1;
@@ -1842,7 +1886,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
             p+=snprintf(buf+p,buf_len-p,"v%d.pit=%.4f\nv%d.fil=%.4f\nv%d.pan=%.4f\nv%d.vol=%.4f\nv%d.dec=%.4f\n",
                 i,(double)vi->pitch,i,(double)vi->filter,i,(double)vi->pan,i,(double)vi->volume,i,(double)vi->decay);
             p+=snprintf(buf+p,buf_len-p,"v%d.rso=%.4f\nv%d.atk=%.4f\nv%d.rel=%.4f\n",i,(double)vi->djReso,i,(double)vi->ampAtk,i,(double)vi->ampRel);
-            p+=snprintf(buf+p,buf_len-p,"v%d.cmp=%.4f\nv%d.clk=%.4f\n",i,(double)vi->comp,i,(double)vi->clock);}
+            p+=snprintf(buf+p,buf_len-p,"v%d.cmp=%.4f\nv%d.pit2=%.4f\n",i,(double)vi->comp,i,(double)vi->clock);}
         #undef WF
         #undef WI
         return p;}
