@@ -178,6 +178,7 @@ const MENU_DEFS = [
       { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 }, { k:'punchWidth', lo:0, hi:1, lbl:'PWide' },
       { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },     { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' },
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },
+      { k:'inSource', opts:['Line','Master'], lbl:'InSrc' },
     ],
     [ /* 4 — Tape (Capture button): the record-path tape machine, Magneto-style */
       { k:'preamp', opts:PREAMP_NAMES, lbl:'Tape' },  { k:'tapeDrive', lo:0, hi:1, lbl:'Drive' },

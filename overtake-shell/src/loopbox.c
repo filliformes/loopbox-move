@@ -298,6 +298,8 @@ typedef struct {
     float globalSat,masterComp,masterLoCut,masterHiCut,masterVol;
     float preamp,overdubMode,stability;int selTrack;
     float globalWowFlut,inputMonitor,inputGain;
+    int inSource;                          /* 0 = Line/mic, 1 = Master mix bus */
+    float selfPrevL[128], selfPrevR[128];  /* last block's own output, subtracted when recording the master (feedback guard) */
     double inputPeakL,inputPeakR;
     Voice voice[NUM_VOICES];
     Biquad masterLo,masterHi;
@@ -1228,7 +1230,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     s->driftSm[4]=0.0f; s->driftSm[5]=0.40f; s->driftSm[6]=0.40f; s->driftSm[7]=0.0f;
     s->mfCut=1.0f; s->mfReso=0.0f; s->mfCutSm=1.0f; s->mfResoSm=0.0f; s->mfMode=0; s->mClock=0.5f; s->mClockMode=0; s->mClockSpot=0; s->mclkRatioSm=1.0f;
     s->perfTrem=0.0f; s->perfTremRate=0.08f; s->punchWidth=0.5f;   /* rate default -> di 0 = one pump per beat */
-    s->masterEQ=0; s->masterGlue=0.0f; s->tapeLimit=0.0f; master_eq_update(s);
+    s->masterEQ=0; s->masterGlue=0.0f; s->tapeLimit=0.0f; master_eq_update(s); s->inSource=0;
     s->sendAType=14;s->sendBType=17;s->sendAM1=0.4f;s->sendAM2=0.5f;s->sendADrift=0.2f;s->sendBM1=0.5f;s->sendBM2=0.5f;s->sendBDrift=0.2f;
     if(s->busA)pfx_select(s->busA,s->sendAType); if(s->busB)pfx_select(s->busB,s->sendBType);
     s->stMix=0.0f;s->stStep=0.3f;s->stOdds=0.5f;s->stSize=0.5f;s->stReach=0.3f;s->stKind=0;s->stStepLeft=1;s->stRng=0x2233aa55u;
@@ -1728,7 +1730,10 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     /* A finished session load hands back a settings blob — apply it here (bounded
      * string parse, no I/O), once, at block start. */
     if(atomic_load(&s->sio.applyState)){ atomic_store(&s->sio.applyState,0); set_param(s,"state",s->sio.stateBuf); }
-    int16_t *micBuf=NULL;if(g_host&&g_host->mapped_memory)micBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_in_offset);
+    int16_t *micBuf=NULL,*mixBuf=NULL;
+    if(g_host&&g_host->mapped_memory){ micBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_in_offset);
+        mixBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_out_offset); }
+    int useMaster=(s->inSource==1)&&mixBuf;   /* Settings p2: record the Move mix bus instead of line-in */
     int selIdx=s->selTrack-1;
     for(int vi=0;vi<NUM_VOICES;vi++){ Voice *fv=&s->voice[vi];
         fv->filterSm+=(fv->filter-fv->filterSm)*0.25f;      /* ~10ms at 2.9ms/block */
@@ -1762,7 +1767,13 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
           double g=(s->tapeLs+9.0)/3.0; s->tapeGain=(g<0.0)?0.0:(g>1.0)?1.0:g; }   /* the last three octaves fade out */
 
         double inL=0.0,inR=0.0;
-        if(micBuf){double ig=(double)s->inputGain;inL=(double)micBuf[n*2]/32768.0*ig;inR=(double)micBuf[n*2+1]/32768.0*ig;
+        if(useMaster){ double ig=(double)s->inputGain;
+            /* Master mix bus minus our own previous-block output, so recording the
+             * master captures the other tracks and monitor, not our own loops (no runaway). */
+            inL=((double)mixBuf[n*2]/32768.0 - (double)s->selfPrevL[n])*ig;
+            inR=((double)mixBuf[n*2+1]/32768.0 - (double)s->selfPrevR[n])*ig;
+            double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR; }
+        else if(micBuf){double ig=(double)s->inputGain;inL=(double)micBuf[n*2]/32768.0*ig;inR=(double)micBuf[n*2+1]/32768.0*ig;
             double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR;}
         int preModel=(int)lb_clampf(s->preamp,0.0f,12.0f);
         double tdG=1.0+(double)s->tapeDrive*3.0;                  /* tape drive w/ unity makeup */
@@ -1849,6 +1860,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         master_glue(s,&mixL,&mixR);          /* Settings: bus glue comp */
         mixL*=(double)s->masterVol; mixR*=(double)s->masterVol;   /* master output level */
         tape_limiter(s,&mixL,&mixR);         /* Settings: analog tape limiter (final) */
+        s->selfPrevL[n]=(float)mixL; s->selfPrevR[n]=(float)mixR;   /* feed the master-record feedback guard next block */
         out_interleaved_lr[n*2]=(int16_t)lb_clampd(mixL*32767.0,-32767.0,32767.0);
         out_interleaved_lr[n*2+1]=(int16_t)lb_clampd(mixR*32767.0,-32767.0,32767.0);
     }
@@ -1887,6 +1899,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
 static const char *preamp_opts[]={"Tapeless","Clean","Cass1","Cass2","VHS1","VHS2","Reel15","Reel7","Reel3","4trk","Porta","Dub","Warp"};
 #define NUM_PREAMP 13
 static const char *odmode_opts[]={"Replace","Multiply","Disint"};
+static const char *insrc_opts[]={"Line","Master"};
 static const char *reverse_opts[]={"Normal","Reverse"};
 static const char *stkind_opts[]={"Tumble","Stutter","Reverse","Tape","Gate","Crush"};
 static int match_enum(const char *value, const char **opts, int count){for(int i=0;i<count;i++)if(strcmp(value,opts[i])==0)return i;return -1;}
@@ -1993,6 +2006,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("mClock",mClock,0.0,1.0)
     if(strcmp(key,"mClockMode")==0){ static const char*o[]={"Music","Free"}; int i=match_enum(val,o,2); s->mClockMode=(i>=0)?i:(atof(val)>0.5?1:0); return; }
     if(strcmp(key,"mClockSpot")==0){ static const char*o[]={"Pre","Post"}; int i=match_enum(val,o,2); s->mClockSpot=(i>=0)?i:(atof(val)>0.5?1:0); return; }
+    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,2); s->inSource=(i>=0)?i:(atof(val)>0.5?1:0); return; }
     SETFR("perfTrem",perfTrem,0.0,1.0) SETFR("perfTremRate",perfTremRate,0.0,1.0) SETFR("punchWidth",punchWidth,0.0,1.0)
     if(strcmp(key,"masterEQ")==0){ int i=match_enum(val,meq_opts,MEQ_N); s->masterEQ=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MEQ_N-1); master_eq_update(s); return; }
     SETFR("masterGlue",masterGlue,0.0,1.0) SETFR("tapeLimit",tapeLimit,0.0,1.0)
@@ -2318,7 +2332,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"masterLoCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterLoCut);
     if(strcmp(key,"masterHiCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterHiCut);
     GETP("masterVol",masterVol)
-    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3);
+    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,2);
     GETP("stability",stability) GETP("globalWowFlut",globalWowFlut) GETP("inputMonitor",inputMonitor) GETP("inputGain",inputGain)
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)
@@ -2385,7 +2399,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
         WF("tapeNoise",s->tapeNoise);WF("tapeDrive",s->tapeDrive);WF("tapeHF",s->tapeHF);
         WI("midiIn",s->midiIn);WF("armThresh",s->armThresh);WF("tapeLoCut",s->tapeLoCut);WF("tapeWow",s->tapeWow);WF("tapeFlut",s->tapeFlut);WF("tapeGen",s->tapeGen);
         /* Master + keyboard */
-        WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);
+        WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);WI("inSource",s->inSource);
         WF("driftAmt",s->driftAmt);WF("driftRate",s->driftRate);WF("driftSize",s->driftSize);WF("driftFb",s->driftFb);
         WF("driftSupr",s->driftSupr);WF("driftBlur",s->driftBlur);WF("driftDamp",s->driftDamp);WF("driftMix",s->driftMix);
         /* FX sequencer */
