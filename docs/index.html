@@ -66,33 +66,34 @@
   ol.steps li{counter-increment:s;position:relative;padding:14px 16px 14px 58px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
   ol.steps li::before{content:counter(s);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:8px;background:var(--accent);color:#04120e;font-weight:750;display:grid;place-items:center;font-family:var(--mono)}
   ol.steps b{color:#fff}
-  /* hardware map: proportioned after the Move itself */
+  /* hardware map: proportioned after the Move itself. ONE column template for the
+     top row, the body and the bottom row, so every knob sits over a pad column, the
+     track bars are rows beside the pads, and Play/Record share the steps row. */
   .movewrap{overflow-x:auto;padding-bottom:4px}
-  .move{background:linear-gradient(180deg,#1b1f26,#0f1216);border:1px solid #2a3038;border-radius:22px;padding:18px 20px 16px;width:760px;max-width:100%;min-width:620px;margin:14px auto;box-shadow:0 30px 60px rgba(0,0,0,.45)}
-  .mv-top{display:grid;grid-template-columns:110px 1fr 46px;align-items:center;gap:14px;margin-bottom:14px}
-  .mv-scr{height:44px;border-radius:5px;background:var(--scr);border:1px solid #2a3038;display:flex;flex-direction:column;justify-content:center;padding:4px 8px;color:var(--scrink);font-family:var(--mono)}
+  .move{--c:78px 18px repeat(8,1fr) 78px;background:linear-gradient(180deg,#1b1f26,#0f1216);border:1px solid #2a3038;border-radius:22px;padding:18px 20px 16px;width:760px;max-width:100%;min-width:640px;margin:14px auto;box-shadow:0 30px 60px rgba(0,0,0,.45)}
+  .mv-top{display:grid;grid-template-columns:var(--c);gap:6px;align-items:center;margin-bottom:12px}
+  .mv-scr{grid-column:1/3;height:44px;border-radius:5px;background:var(--scr);border:1px solid #2a3038;display:flex;flex-direction:column;justify-content:center;padding:4px 8px;color:var(--scrink);font-family:var(--mono)}
   .mv-scr .ico{font-size:.5rem;letter-spacing:.2em;opacity:.6}
   .mv-scr .ttl{font-size:.68rem;letter-spacing:.06em}
-  .mv-knobs{display:flex;justify-content:space-between;align-items:center}
-  .kn{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 42% 36%,#2f3742,#0c0f13);border:1px solid #39424e;position:relative}
+  .kn{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 42% 36%,#2f3742,#0c0f13);border:1px solid #39424e;position:relative;justify-self:center}
   .kn::after{content:"";position:absolute;left:50%;top:3px;width:2px;height:8px;margin-left:-1px;background:#c8d0da;border-radius:1px}
-  .kn.big{width:44px;height:44px}
-  .mv-body{display:grid;grid-template-columns:78px 26px 1fr 78px;gap:12px;align-items:start}
-  .mv-left{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:190px}
+  .kn.big{width:44px;height:44px;grid-column:11}
+  .mv-body{display:grid;grid-template-columns:var(--c);grid-template-rows:repeat(4,auto) auto;gap:6px;align-items:stretch}
+  .mv-left{grid-column:1;grid-row:1/5;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px}
+  .mv-playrec{grid-column:1;grid-row:5;display:flex;justify-content:center;gap:8px;align-self:center}
   .jog{width:64px;height:64px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#2b323c,#0a0d10);border:1px solid #39424e;box-shadow:inset 0 0 0 6px #14181d}
   .rb{width:30px;height:30px;border-radius:50%;background:#1d2229;border:1px solid #39424e;color:#cfd6df;display:grid;place-items:center;font-size:.8rem}
+  .rb.sm{width:22px;height:22px;font-size:.6rem}
   .mv-left .pair{display:flex;gap:8px}
-  .mv-left .spacer{flex:1}
-  .mv-tracks{display:grid;grid-template-rows:repeat(4,1fr);gap:8px;padding-top:2px}
-  .tb{width:10px;height:28px;border-radius:5px;box-shadow:0 0 10px currentColor}   /* four bars span the pad grid, as on the Move */
-  .mv-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+  .tb{grid-column:2;width:10px;justify-self:center;align-self:stretch;border-radius:5px;box-shadow:0 0 10px currentColor}   /* same row = same height as its pads */
   .pad{aspect-ratio:1.4/1;border-radius:6px;border:1px solid rgba(255,255,255,.14)}
-  .mv-steps{display:grid;grid-template-columns:repeat(16,1fr);gap:6px;margin-top:10px}
+  .mv-steps{grid-column:3/11;grid-row:5;display:grid;grid-template-columns:repeat(16,1fr);gap:6px;align-self:center}
   .st{aspect-ratio:1/1;border-radius:50%;background:#1a1f26;border:1px solid #39424e}
   .st.on{background:#dfe6ee;border-color:#dfe6ee}
-  .mv-right{display:grid;grid-template-columns:1fr 1fr;gap:8px;justify-items:center}
+  .mv-right{grid-column:11;grid-row:1/6;display:grid;grid-template-columns:1fr 1fr;gap:8px;justify-items:center;align-content:start}
   .mv-right .rb{font-size:.72rem}
-  .mv-arrows{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px;justify-items:center;margin-top:6px}
+  .mv-arrows{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}   /* left and right around the up/down pair, as on the Move */
+  .mv-arrows .ud{display:flex;flex-direction:column;gap:4px}
   .cap{color:var(--faint);font-size:.72rem;text-align:center;margin-top:6px}
   .callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:16px auto 0;max-width:760px;font-size:.8rem;color:var(--dim)}
   .callouts div b{color:#fff}
@@ -194,37 +195,26 @@
   <div class="movewrap"><div class="move" aria-label="Ableton Move layout as used by LoopBox">
     <div class="mv-top">
       <div class="mv-scr"><div class="ico">&#9684; &#9646;&#9646; &#9680;</div><div class="ttl">LOOPBOX</div></div>
-      <div class="mv-knobs">
-        <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
-        <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
-      </div>
+      <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
+      <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
       <div class="kn big" title="Master volume"></div>
     </div>
-    <div class="mv-body">
+    <div class="mv-body" id="mvbody">
       <div class="mv-left">
         <div class="jog" title="Jog wheel: scrub the loop"></div>
         <div class="pair"><div class="rb" title="Back">&#8249;</div><div class="rb" title="Menu">&#8801;</div></div>
-        <div class="spacer"></div>
-        <div class="pair"><div class="rb" title="Play">&#9655;</div><div class="rb" title="Record">&#9675;</div></div>
       </div>
-      <div class="mv-tracks">
-        <div class="tb" style="background:#4aa3ff;color:#4aa3ff" title="Track 1: Input FX"></div>
-        <div class="tb" style="background:#b98bff;color:#b98bff" title="Track 2: Perform"></div>
-        <div class="tb" style="background:#ff7a5b;color:#ff7a5b" title="Track 3: Send FX"></div>
-        <div class="tb" style="background:#4bd47a;color:#4bd47a" title="Track 4: Settings"></div>
-      </div>
-      <div>
-        <div class="mv-grid" id="mvgrid"></div>
-        <div class="mv-steps" id="mvsteps"></div>
-      </div>
+      <div class="mv-playrec"><div class="rb" title="Play">&#9655;</div><div class="rb" title="Record">&#9675;</div></div>
+      <div class="mv-steps" id="mvsteps"></div>
       <div class="mv-right">
         <div class="rb" title="Capture: Input Tape">&#9974;</div><div class="rb" title="Sample/Record: Sessions">&#9679;</div>
         <div class="rb" title="Loop: loop length">&#10226;</div><div class="rb" title="Mute">M</div>
         <div class="rb" title="Delete: FX sequencer">&#10005;</div><div class="rb" title="Copy: clone">&#10697;</div>
         <div class="rb" title="Undo">&#8617;</div><div class="rb" title="Shift">&#8230;</div>
         <div class="mv-arrows">
-          <div class="rb" title="Up: previous page">&#9650;</div><div class="rb" title="Left: tape brake">&#9664;</div>
-          <div class="rb" title="Down: next page">&#9660;</div><div class="rb" title="Right: tape wind">&#9654;</div>
+          <div class="rb sm" title="Left: tape brake">&#9664;</div>
+          <div class="ud"><div class="rb sm" title="Up: previous page">&#9650;</div><div class="rb sm" title="Down: next page">&#9660;</div></div>
+          <div class="rb sm" title="Right: tape wind">&#9654;</div>
         </div>
       </div>
     </div>
@@ -425,19 +415,25 @@
 </div>
 
 <script>
-/* the Move's 4x8 pad grid: left 16 = loops, right 16 = punch FX (pad 16 / PalFX top-right, like the device) */
+/* the Move's 4x8 pad grid on the shared column template: each row gets its track bar
+ * (column 2) and eight pads (columns 3-10); left 16 = loops, right 16 = punch FX with
+ * pad 16 / PalFX top-right, like the device. Steps live on row 5 beside Play/Record. */
 (function(){
-  const G=document.getElementById('mvgrid'), ST=document.getElementById('mvsteps');
+  const B=document.getElementById('mvbody'), ST=document.getElementById('mvsteps');
+  const bars=['#4aa3ff','#b98bff','#ff7a5b','#4bd47a'], barNames=['Track 1: Input FX','Track 2: Perform','Track 3: Send FX','Track 4: Settings'];
   const fam=['var(--blue)','var(--blue)','var(--blue)','var(--blue)',
              'var(--pink)','var(--pink)','var(--pink)','var(--pink)',
              'var(--purple)','var(--purple)','var(--purple)','var(--purple)',
              'var(--yellow)','var(--yellow)','var(--yellow)','var(--red)'];
   const rowsTopFirst=[[12,13,14,15],[8,9,10,11],[4,5,6,7],[0,1,2,3]];
   for(let r=0;r<4;r++){
-    for(let c=0;c<4;c++){ const idx=rowsTopFirst[r][c]; const d=document.createElement('div'); d.className='pad';
-      const on=(idx*7)%16; d.style.background=on<9?'linear-gradient(180deg,#3a6fb0,#24466f)':'linear-gradient(180deg,#232a34,#171c23)'; G.appendChild(d); }
-    for(let c=0;c<4;c++){ const idx=rowsTopFirst[r][c]; const d=document.createElement('div'); d.className='pad';
-      d.style.background=fam[idx]; d.style.opacity=.9; G.appendChild(d); }
+    const tb=document.createElement('div'); tb.className='tb'; tb.title=barNames[r];
+    tb.style.background=bars[r]; tb.style.color=bars[r]; tb.style.gridRow=String(r+1); B.insertBefore(tb, ST);
+    for(let c=0;c<8;c++){ const idx=rowsTopFirst[r][c%4]; const d=document.createElement('div'); d.className='pad';
+      d.style.gridRow=String(r+1); d.style.gridColumn=String(c+3);
+      if(c<4){ const on=(idx*7)%16; d.style.background=on<9?'linear-gradient(180deg,#3a6fb0,#24466f)':'linear-gradient(180deg,#232a34,#171c23)'; }
+      else { d.style.background=fam[idx]; d.style.opacity=.9; }
+      B.insertBefore(d, ST); }
   }
   for(let i=0;i<16;i++){ const d=document.createElement('div'); d.className='st'+(i===2?' on':''); ST.appendChild(d); }
 })();
