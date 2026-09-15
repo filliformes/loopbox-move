@@ -110,7 +110,7 @@ function punchEnum(i, j) {
     return null;
 }
 function punchDisp(i, j, v) { const e = punchEnum(i, j); return e ? e.disp(e.fromVal(v)) : Number(v).toFixed(2); }
-let punchMode = false, punchActive = -1;
+let punchMode = false, punchActive = -1, punchTookMenu = false;   /* a knob turn pulled us out of a menu during this punch */
 const heldPunch = [];  /* currently-held punch pads (up to 4, in press order) */
 const punchLatched = new Array(NV).fill(false);  /* Shift+pad = latch on (hands-free) */
 const padFlash = new Array(NV).fill(0);          /* right-pad LED flash-until (ms) for undo-reset confirmation */
@@ -362,9 +362,13 @@ function paintAll(force) {
 }
 /* Open (or toggle off) a menu by index; 0-3 are the track buttons, 4=Tape, 5=Sessions */
 function openMenu(idx) {
-    menuPage = 0;
-    if (menu === idx) menu = -1;
-    else { menu = idx; menuReload = true; setMsg(MENU_NAMES[idx]); showView('knobs'); if (idx === 5) pollSessNames(); }
+    if (menu === idx) {
+        /* already open: step to the next knob page if this menu has one, else quit */
+        if (MENU_PAGED[idx] && menuPage < menuPages() - 1) { menuPage++; menuReload = true; showView('knobs'); }
+        else { menu = -1; menuPage = 0; }
+    } else {
+        menu = idx; menuPage = 0; menuReload = true; setMsg(MENU_NAMES[idx]); showView('knobs'); if (idx === 5) pollSessNames();
+    }
     paintTrackLEDs(); paintNav(); dirty = true;
 }
 /* Nav buttons: arrows lit (current page's jump-arrow bright), Undo dim, Mute bright while held */
@@ -1297,8 +1301,8 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         const k = d1 - MoveKnob1;
         if (k >= 0 && k < 8) {
-            if (menu >= 0 && curMenuDefs()) { menuKnob(k, decodeDelta(d2)); showView('knobs'); return; }
             if (punchMode && punchActive >= 0) {
+                if (menu >= 0) { menu = -1; menuPage = 0; punchTookMenu = true; paintTrackLEDs(); paintNav(); }   /* pad + knob takes over whatever menu was open */
                 if (k < 4) {                                           /* knobs 1-4 = LFO dest/shape/rate/depth */
                     const le = punchLfoEnum(k); let nv;
                     if (le) { const st = enumSteps(k, decodeDelta(d2)); if (st === 0) return;
@@ -1316,6 +1320,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 }
                 return;
             }
+            if (menu >= 0 && curMenuDefs()) { menuKnob(k, decodeDelta(d2)); showView('knobs'); return; }
             const def = PAGES[page()][k];
             if (def.page !== undefined) { if (decodeDelta(d2) !== 0) { stampButton(k); setPage(def.page); } return; }
             if (def.opts) {                                  /* enum page knob (playhead modes) */
@@ -1397,7 +1402,8 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 in NOTE_TO_RIGHT) {                  /* punch-in FX: hold to apply, knobs edit it */
             const i = NOTE_TO_RIGHT[d1];
-            if (menu >= 0 && !delHeld && !undoHeld && !shiftHeld) { menu = -1; paintTrackLEDs(); paintNav(); }   /* a punch pad leaves any menu */
+            /* a punch pad no longer opens its param screen or leaves the menu on press;
+             * the menu is taken over only when a knob is actually touched (see knob handler) */
             if (shiftHeld && punchLatched[i]) {     /* Shift+pad on a latched effect = unlatch (stop) */
                 punchLatched[i] = false; pressFrozen[i] = false; padPress[i] = 0; pressMax[i] = 0;
                 const hi0 = heldPunch.indexOf(i); if (hi0 >= 0) heldPunch.splice(hi0, 1);
@@ -1460,7 +1466,9 @@ globalThis.onMidiMessageInternal = function (data) {
              * on P4) stay captured by the punch effect indefinitely. */
             const pi = physHeld.indexOf(i); if (pi >= 0) physHeld.splice(pi, 1);
             if (physHeld.length) punchActive = physHeld[physHeld.length - 1];
-            else { punchActive = -1; punchMode = false; needReload = true; }
+            else { punchActive = -1; punchMode = false; needReload = true;
+                   if (punchTookMenu) { showView('main'); }         /* pad+knob had taken over a menu: land on main, not back in it */
+                   punchTookMenu = false; }
             if (punchLatched[i]) {                                   /* latched: keep running; a Shift+pad latch keeps the peak pressure of the hold */
                 if (!pressFrozen[i]) { padPress[i] = pressMax[i]; pressFrozen[i] = true; sp('punchPress', i + ':' + padPress[i].toFixed(3)); }
                 enqLED(RIGHT_NOTES[i], rightColor(i)); return; }
