@@ -124,6 +124,7 @@ Knobs 5–8 only follow a pad while it is physically held; latched pads keep run
 | Track 2 | **Perform** | Stumble Mix | Stumble Step | Stumble Odds | Stumble Size | Stumble Reach | Stumble Kind | Jump | Scan |
 | Track 3 | **Send FX** | A FX | A Amount | A Macro | A Drift | B FX | B Amount | B Macro | B Drift |
 | Track 4 | **Settings** | Master Vol | gSat (to 2.0) | Lo Cut (20–1000 Hz) | Hi Cut | Arm Threshold | ODub mode | Root | MIDI |
+| Track 4 (page 2) | **Settings 2** | … | Punch Width | **InSrc** (Line/Master) | **LpFlt** (loop filter) | | | | |
 | Capture | **Input Tape** | Tape Style | Drive | Wow | Flutter | HF | Lo Cut | Hiss | Generations |
 | Sample | **Drift** | Drift | Rate | Size | FBk | Supr | Blur | Damp | Mix |
 | ≡ (Menu) | **Sessions** | Slot | Save | Load | Del | | | | |

@@ -87,6 +87,8 @@ Sixteen momentary effects over a 2-second capture ring, in four families —
 **Time** (Stretch · Freeze · Reverse · **PalFX**, one Palette effect as a punch: FX / Amount /
 Macro / Drift, default Space) — **up to 5 stacked in series**. Slice effects auto-pan in
 sync with their rate, and every slot loudness-matches its wet to the dry it replaces.
+**Oct+, Oct−, Shimmer and Chop are spread to stereo by a microshifter**, the same widener
+Stretch and Freeze use.
 Hold a pad to apply; **knobs 5–8 edit the held effect's four parameters** live, and
 **pad pressure** drives a per-effect expression (subdivide, density, glide, freeze, rate…)
 shown in the footer. **Shift + pad latches** it on hands-free; **Shift while holding** latches
@@ -138,7 +140,11 @@ cores 0–2, never on the audio callback. Sessions live in
 - **Perform menu:** Stumble (probabilistic step glitch), Jump, Scan, Dropout.
 - **MIDI keyboard:** 8-voice polyphony playing a loop chromatically through its full FX
   chain. **Off by default** (Settings → MIDI) so Move tracks' MIDI-out cannot trigger loops.
-- **Settings:** Master Out, global sat (to 2.0), master Lo/Hi cut, arm threshold, overdub mode, root note, MIDI.
+- **Settings:** Master Out, global sat (to 2.0), character EQ, glue, tape limiter, master Lo/Hi cut,
+  **input source** (Line or the Move master mix), **loop filter** (the 12 Master-filter voicings applied
+  to every loop's low-pass), punch width, arm threshold, overdub mode, root note, MIDI.
+- **Record source:** line/mic by default, or the Move's whole master mix (Settings → InSrc) to loop
+  other tracks and the full Move output; it subtracts its own output so the master feedback can't run away.
 - **Undo** reverts the last overdub exactly (each overwritten sample is saved as it goes), else restores the last cleared loop.
 
 ---
@@ -179,7 +185,8 @@ cores 0–2, never on the audio callback. Sessions live in
 ### Screens
 The main screen shows the 16-track strip, CPU and input level. Touching a knob or opening a
 menu shows the **full 8-knob page**; pressing a step (or scrubbing) shows the loop's
-**waveform with the active playheads riding over it**. Both fall back after ~5 s.
+**waveform with the active playheads riding over it**. Turning a loop's **Start** or **End** shows that
+waveform with labelled **S** and **E** markers at the trim points. Both fall back after ~5 s.
 
 ---
 

@@ -263,7 +263,7 @@
 <section id="tape">
   <div class="eyebrow">Input</div>
   <h2>What goes onto the tape</h2>
-  <p class="lede">Everything you record passes through the input stage first, so set it before you play. The <b>Input FX</b> menu (track button 1) holds the monitor level, the tape style, input gain and a three-band EQ. The <b>Input Tape</b> page (Capture button) is the machine itself: 13 styles including a true <b>Tapeless</b> bypass, drive, wow, flutter, HF rolloff, low cut, hiss and <b>Generations</b>, the sound of repeated dubbing. Whatever you dial here is printed onto the loop.</p>
+  <p class="lede">Everything you record passes through the input stage first, so set it before you play. The <b>Input FX</b> menu (track button 1) holds the monitor level, the tape style, input gain and a three-band EQ. The <b>Input Tape</b> page (Capture button) is the machine itself: 13 styles including a true <b>Tapeless</b> bypass, drive, wow, flutter, HF rolloff, low cut, hiss and <b>Generations</b>, the sound of repeated dubbing. Whatever you dial here is printed onto the loop. By default the source is the line/mic input, but Settings page 2 can switch it to the <b>Master</b> mix so a loop records the whole Move output, other tracks included; it subtracts its own signal so it never feeds back.</p>
 </section>
 
 <section id="loops">
@@ -305,7 +305,7 @@
 <section id="punch">
   <div class="eyebrow">Punch-in FX</div>
   <h2>The right pads: sixteen momentary effects</h2>
-  <p class="lede">Hold a pad to apply an effect to the whole mix, reading a rolling 2-second capture of the master. Up to five stack in series, each with four parameters on knobs 5–8, and pad pressure drives a per-effect expression shown in the footer.</p>
+  <p class="lede">Hold a pad to apply an effect to the whole mix, reading a rolling 2-second capture of the master. Up to five stack in series, each with four parameters on knobs 5–8, and pad pressure drives a per-effect expression shown in the footer. Oct+, Oct−, Shimmer and Chop spread to stereo through the same microshifter as Stretch and Freeze.</p>
   <div class="fx-fam">
     <div class="card"><h3><span class="dot" style="background:var(--blue)"></span>Loops</h3><p><b>Loop12 · Loop16 · LoopSh · Chop</b>. Beat-locked stutters. Chop repeats the last transient on one of 32 rhythmic patterns drawn from Signal. Pressure subdivides.</p></div>
     <div class="card"><h3><span class="dot" style="background:var(--pink)"></span>Grains</h3><p><b>Haze · Mosaic · Smear · Strum</b>. Granular clouds: from a shimmering haze to a grid re-sequencer to an arpeggiated cascade. Pressure adds density.</p></div>
@@ -372,7 +372,9 @@
     <tr><td>Juno</td><td>chorus-console: bright, glassy</td></tr>
     <tr><td>Console</td><td>neutral glue colour</td></tr>
   </table></div>
-  <p class="muted">Settings page 2 holds arm threshold, overdub mode, root note, MIDI, and the punch-FX stereo width (mono → wide, per effect).</p>
+  <h3>Loop Filter and record source (Settings page 2)</h3>
+  <p><b>Loop Filter</b> gives every loop the same twelve analog voicings as the Master Filter (Clean, SEM, MS-20, Steiner, four ladders, Prophet, Oberheim, Diode, K35, Vintage): the loop Filter knob sweeps and its low-pass takes on the chosen model, resonance from Reso. <b>Input source</b> switches recording between the line/mic input and the Move’s master mix, so a loop can capture the whole Move output.</p>
+  <p class="muted">Settings page 2 also holds arm threshold, overdub mode, root note, MIDI, and the punch-FX stereo width (mono → wide, per effect).</p>
 </section>
 
 <section id="drift">
