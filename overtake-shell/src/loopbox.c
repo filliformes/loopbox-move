@@ -323,6 +323,11 @@ typedef struct {
     float perfTrem, perfTremRate; double tremPh;
     /* Settings 2: character EQ + glue + tape limiter */
     int masterEQ; float masterGlue, tapeLimit;
+    /* Drift: global COSMOS-style shifting-delay memory station (Sample-button menu) */
+    float driftAmt, driftRate, driftSize, driftFb, driftSupr, driftBlur, driftDamp, driftMix;
+    float driftSm[8];                 /* smoothed controls, no stepping */
+    float *drL[4], *drR[4]; int drLen[4]; int drW[4];
+    double drPh[4]; float drDL[4], drDR[4]; double drInEnv;
     Biquad eqLoSh, eqMidPk, eqHiSh; int eqCrush; float eqSat, eqMakeup; double eqCrushHoldL,eqCrushHoldR; int eqCrushCnt;
     double glueEnvL,glueEnvR, tapeLimEnv;
     double compEnvL,compEnvR,casLpL,casLpR;uint32_t rng;
@@ -1157,6 +1162,8 @@ static inline void poly_sample(loopbox_t *s, double *mixL, double *mixR, double 
 }
 
 /* ---- Lifecycle ---- */
+#define DRIFT_N 4
+static const int DRIFT_LEN[DRIFT_N] = { 24001, 41011, 62003, 89017 };  /* ~0.54/0.93/1.41/2.02 s, coprime line lengths */
 static void *create_instance(const char *module_dir, const char *json_defaults) {
     (void)module_dir;(void)json_defaults;
     loopbox_t *s=(loopbox_t*)calloc(1,sizeof(loopbox_t));if(!s)return NULL;
@@ -1199,6 +1206,15 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     s->undoGen=(uint16_t*)calloc(LOOP_SAMPLES,sizeof(uint16_t)); s->undoCur=1; s->undoTrack=-1; atomic_store(&s->undoReq,0);
     s->tapeHold=0; s->tapeLs=0.0; s->tapeSpd=1.0; s->tapeGain=1.0;
     fxseq_init(&s->fx); s->punchFxId=28;   /* PalFX punch defaults to Veil */
+    for(int i=0;i<DRIFT_N;i++){ s->drLen[i]=DRIFT_LEN[i];
+        s->drL[i]=(float*)calloc((size_t)s->drLen[i],sizeof(float));
+        s->drR[i]=(float*)calloc((size_t)s->drLen[i],sizeof(float));
+        s->drW[i]=0; s->drPh[i]=0.25*i; s->drDL[i]=0.0f; s->drDR[i]=0.0f; }
+    s->drInEnv=0.0;
+    s->driftAmt=0.0f; s->driftRate=0.30f; s->driftSize=0.50f; s->driftFb=0.60f;
+    s->driftSupr=0.0f; s->driftBlur=0.40f; s->driftDamp=0.40f; s->driftMix=0.0f;
+    s->driftSm[0]=0.0f; s->driftSm[1]=0.30f; s->driftSm[2]=0.50f; s->driftSm[3]=0.60f;
+    s->driftSm[4]=0.0f; s->driftSm[5]=0.40f; s->driftSm[6]=0.40f; s->driftSm[7]=0.0f;
     s->mfCut=1.0f; s->mfReso=0.0f; s->mfCutSm=1.0f; s->mfResoSm=0.0f; s->mfMode=0; s->mClock=0.5f; s->mClockMode=0; s->mClockSpot=0; s->mclkRatioSm=1.0f;
     s->perfTrem=0.0f; s->perfTremRate=0.08f; s->punchWidth=0.5f;   /* rate default -> di 0 = one pump per beat */
     s->masterEQ=0; s->masterGlue=0.0f; s->tapeLimit=0.0f; master_eq_update(s);
@@ -1227,6 +1243,7 @@ static void destroy_instance(void *inst){loopbox_t *s=(loopbox_t*)inst;if(!s)ret
     if(s->sio.active){ atomic_store(&s->sio.cancel,1); atomic_store(&s->sio.request,1); /* wake */
         pthread_join(s->sio.th,NULL); s->sio.active=0; }   /* join BEFORE freeing buffers */
     for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);ps_destroy(s->voice[i].ps);}
+    for(int i=0;i<4;i++){free(s->drL[i]);free(s->drR[i]);}
     if(s->busA)pfx_destroy(s->busA); if(s->busB)pfx_destroy(s->busB); if(s->punchFx)pfx_destroy(s->punchFx);
     free(s->undoL); free(s->undoR); free(s->undoGen); free(s);}
 
@@ -1636,6 +1653,59 @@ static inline void master_limiter(double *l, double *r, double *env){
 }
 
 /* ---- Render Block ---- */
+/* ---- Drift: a global drifting-delay memory, after Soma COSMOS -------------
+ * Four delay lines of coprime length, each read at a slowly drifting tap, with
+ * a feedback matrix that morphs from self-feedback (Blur 0) to a normalized
+ * Hadamard cross-mix (Blur 1). The loop mix feeds it (Drift = feed level); the
+ * memory recirculates (Feedback = sustain, tanh-limited); loud new input erases
+ * old content (Suppress); a one-pole damps the tail (Damp); Mix blends the wet
+ * ambient layer back into the master. The coprime lengths plus per-line async
+ * LFOs mean the recombination never lands on an exact repeat. */
+static inline void drift_sample(loopbox_t *s, double *l, double *r){
+    if(!s->drL[0]) return;
+    float *sm=s->driftSm;
+    const float tgt[8]={s->driftAmt,s->driftRate,s->driftSize,s->driftFb,s->driftSupr,s->driftBlur,s->driftDamp,s->driftMix};
+    for(int i=0;i<8;i++) sm[i]+=(tgt[i]-sm[i])*0.002f;
+    float amt=sm[0],rate=sm[1],size=sm[2],fb=sm[3],supr=sm[4],blur=sm[5],damp=sm[6],mix=sm[7];
+    if(mix<0.0008f && amt<0.0008f) return;                 /* fully idle: leave the memory frozen */
+    double inL=*l, inR=*r;
+    double ie=fabs(inL)+fabs(inR); s->drInEnv += (ie - s->drInEnv)*0.0016;   /* input level for the suppressor */
+    double sg = 1.0 - (double)supr*fmin(1.0, s->drInEnv*3.0);
+    double yL[DRIFT_N], yR[DRIFT_N];
+    double tapFrac = 0.12 + 0.80*(double)size;
+    double baseRate = (0.05 + 0.9*(double)rate)/(double)SR;
+    for(int i=0;i<DRIFT_N;i++){
+        int len=s->drLen[i];
+        s->drPh[i]+= baseRate*(1.0+0.137*i); if(s->drPh[i]>=1.0)s->drPh[i]-=1.0;
+        double lfo=sin(6.283185307179586*s->drPh[i]);
+        double modS = lfo*(double)amt*(double)len*0.03;
+        double rp = (double)s->drW[i] - tapFrac*(double)len + modS;
+        while(rp<0)rp+=len; while(rp>=len)rp-=len;
+        int i0=(int)rp; double fr=rp-i0; int i1=i0+1; if(i1>=len)i1=0;
+        yL[i]=s->drL[i][i0]+(s->drL[i][i1]-s->drL[i][i0])*fr;
+        yR[i]=s->drR[i][i0]+(s->drR[i][i1]-s->drR[i][i0])*fr;
+    }
+    double hL0=0.5*( yL[0]+yL[1]+yL[2]+yL[3]), hL1=0.5*( yL[0]-yL[1]+yL[2]-yL[3]);
+    double hL2=0.5*( yL[0]+yL[1]-yL[2]-yL[3]), hL3=0.5*( yL[0]-yL[1]-yL[2]+yL[3]);
+    double hR0=0.5*( yR[0]+yR[1]+yR[2]+yR[3]), hR1=0.5*( yR[0]-yR[1]+yR[2]-yR[3]);
+    double hR2=0.5*( yR[0]+yR[1]-yR[2]-yR[3]), hR3=0.5*( yR[0]-yR[1]-yR[2]+yR[3]);
+    double hL[4]={hL0,hL1,hL2,hL3}, hR[4]={hR0,hR1,hR2,hR3};
+    double b=(double)blur, fbg=(double)fb*1.02;
+    double dco=0.05+0.9*(1.0-(double)damp);                 /* Damp 1 -> heavy low-pass in the tail */
+    for(int i=0;i<DRIFT_N;i++){
+        int len=s->drLen[i];
+        double fL=(1.0-b)*yL[i]+b*hL[i], fR=(1.0-b)*yR[i]+b*hR[i];
+        s->drDL[i]+= (float)((fL - s->drDL[i])*dco); s->drDR[i]+= (float)((fR - s->drDR[i])*dco);
+        fL=s->drDL[i]; fR=s->drDR[i];
+        double wL=(double)mf_tanh((float)(inL*(double)amt + fL*fbg*sg));
+        double wR=(double)mf_tanh((float)(inR*(double)amt + fR*fbg*sg));
+        s->drL[i][s->drW[i]]=(float)(wL+1e-25); s->drR[i][s->drW[i]]=(float)(wR+1e-25);
+        s->drW[i]++; if(s->drW[i]>=len)s->drW[i]=0;
+    }
+    double wetL=0.5*(yL[0]+yL[1]+yL[2]+yL[3]), wetR=0.5*(yR[0]+yR[1]+yR[2]+yR[3]);
+    *l = inL + wetL*(double)mix;
+    *r = inR + wetR*(double)mix;
+}
 static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     loopbox_t *s=(loopbox_t*)inst;
     struct timespec _t0; clock_gettime(CLOCK_MONOTONIC,&_t0);
@@ -1757,6 +1827,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
               ps->w++; if(ps->w>=PUNCH_BUF)ps->w=0; }
           mixL=xl; mixR=xr; }
         if(s->mClockSpot==1) master_clockfilter(s,&mixL,&mixR);   /* Clock+filter post-punch */
+        drift_sample(s,&mixL,&mixR);         /* Drift: global COSMOS memory layer (Sample menu) */
         perf_pump(s,&mixL,&mixR);            /* Perform K7/K8: rhythmic ducking pump */
         master_character(s,&mixL,&mixR);     /* Settings: console/sampler colour */
         master_glue(s,&mixL,&mixR);          /* Settings: bus glue comp */
@@ -1909,6 +1980,10 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("perfTrem",perfTrem,0.0,1.0) SETFR("perfTremRate",perfTremRate,0.0,1.0) SETFR("punchWidth",punchWidth,0.0,1.0)
     if(strcmp(key,"masterEQ")==0){ int i=match_enum(val,meq_opts,MEQ_N); s->masterEQ=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MEQ_N-1); master_eq_update(s); return; }
     SETFR("masterGlue",masterGlue,0.0,1.0) SETFR("tapeLimit",tapeLimit,0.0,1.0)
+    SETFR("driftAmt",driftAmt,0.0,1.0) SETFR("driftRate",driftRate,0.0,1.0)
+    SETFR("driftSize",driftSize,0.0,1.0) SETFR("driftFb",driftFb,0.0,1.0)
+    SETFR("driftSupr",driftSupr,0.0,1.0) SETFR("driftBlur",driftBlur,0.0,1.0)
+    SETFR("driftDamp",driftDamp,0.0,1.0) SETFR("driftMix",driftMix,0.0,1.0)
     if(strncmp(key,"pfx",3)==0&&key[3]>='0'&&key[3]<='9'){
         int idx=atoi(key+3);
         if(idx>=0&&idx<NUM_PUNCH){ float a=0,b=0,c=0,d=0;
@@ -2206,6 +2281,8 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     GETP("perfTrem",perfTrem) GETP("perfTremRate",perfTremRate) GETP("punchWidth",punchWidth)
     if(strcmp(key,"masterEQ")==0)return snprintf(buf,buf_len,"%s",meq_opts[s->masterEQ]);
     GETP("masterGlue",masterGlue) GETP("tapeLimit",tapeLimit)
+    GETP("driftAmt",driftAmt) GETP("driftRate",driftRate) GETP("driftSize",driftSize) GETP("driftFb",driftFb)
+    GETP("driftSupr",driftSupr) GETP("driftBlur",driftBlur) GETP("driftDamp",driftDamp) GETP("driftMix",driftMix)
     if(strcmp(key,"undoAvail")==0)return snprintf(buf,buf_len,"%d",(s->undoTrack>=0&&s->undoCount>0&&!atomic_load(&s->undoReq))?s->undoTrack+1:0);
     if(strcmp(key,"armed")==0){ int p=0;
         for(int i=0;i<NUM_VOICES&&p<buf_len-1;i++) buf[p++]=(char)('0'+(s->voice[i].armed?1:0));
@@ -2293,6 +2370,8 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
         WI("midiIn",s->midiIn);WF("armThresh",s->armThresh);WF("tapeLoCut",s->tapeLoCut);WF("tapeWow",s->tapeWow);WF("tapeFlut",s->tapeFlut);WF("tapeGen",s->tapeGen);
         /* Master + keyboard */
         WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);
+        WF("driftAmt",s->driftAmt);WF("driftRate",s->driftRate);WF("driftSize",s->driftSize);WF("driftFb",s->driftFb);
+        WF("driftSupr",s->driftSupr);WF("driftBlur",s->driftBlur);WF("driftDamp",s->driftDamp);WF("driftMix",s->driftMix);
         /* FX sequencer */
         p+=snprintf(buf+p,buf_len-p,"fxseq=%d,%d,%d,%.3f,%.3f,%d\n",s->fx.run,s->fx.speed,s->fx.len,(double)s->fx.gate,(double)s->fx.swing,s->fx.dir);
         for(int i=0;i<FXSEQ_STEPS;i++){ const FxStep *st=&s->fx.st[i]; if(!st->n&&!st->ext)continue;

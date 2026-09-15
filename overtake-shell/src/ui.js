@@ -17,7 +17,7 @@
 import {
     Black, White, LightGrey, DarkGrey,
     BrightRed, NeonGreen, NeonPink, Purple, AzureBlue, VividYellow, BrightOrange, DarkOrange,
-    MoveKnob1, MoveShift, MoveBack, MoveUp, MoveDown, MoveLeft, MoveRight, MoveUndo, MoveMute, MoveDelete, MovePlay,
+    MoveKnob1, MoveShift, MoveBack, MoveMenu, MoveUp, MoveDown, MoveLeft, MoveRight, MoveUndo, MoveMute, MoveDelete, MovePlay,
     MoveSample, MoveCapture, MoveCopy, MoveLoop, MoveMainKnob,
     MoveSteps, MoveRow1, MoveRow2, MoveRow3, MoveRow4,
     WhiteLedOff, WhiteLedDim, WhiteLedBright,
@@ -142,7 +142,7 @@ function punchLfoDisp(j, v) { const e = punchLfoEnum(j); return e ? e.disp(e.fro
 
 /* ---- Track-button menus (MoveRow1..4) ---- */
 const ROW_CCS = [MoveRow1, MoveRow2, MoveRow3, MoveRow4];   /* Track buttons 1..4 */
-const MENU_NAMES = ['Input FX', 'Perform', 'Send FX', 'Settings', 'Input Tape', 'Sessions', 'FX Seq'];
+const MENU_NAMES = ['Input FX', 'Perform', 'Send FX', 'Settings', 'Input Tape', 'Sessions', 'FX Seq', 'Drift'];
 const CHANCE_NAMES = ['Always','10%','20%','30%','40%','50%','60%','70%','80%','90%','LikeLast','P1 S1','P2 S1','S1 P1'];
 const PFX_NAMES = ['Off','Drive','Sweeten','Fuzz','Howl','Fold','Swell','Doubler','Vibrato','Phaser','Tremolo','Pitch','Shift',
                    'Cascade','Reels','Collage','Reverse','Space','Bloom','Filter','Squash','Cassette','Broken','Interference','Halo','Plate','Quartz','Prism','Veil'];
@@ -195,6 +195,12 @@ const MENU_DEFS = [
       { k:'fxseqLen', lo:1, hi:16, lbl:'Len', int:true },    { k:'fxseqChance', opts:CHANCE_NAMES, lbl:'Chnc', chance:true },
       { k:'fxseqGate', lo:0.1, hi:1, lbl:'Gate', hold:true }, { k:'fxseqSwing', lo:0.5, hi:0.75, lbl:'Swing' },
       { k:'fxseqDir', opts:['Fwd','Bwd','Ping','Rand'], lbl:'Dir' }, { k:'fxseqClear', trig:true, lbl:'Clear' },
+    ],
+    [ /* 7 — Drift (Sample button): global COSMOS-style shifting-delay memory */
+      { k:'driftAmt', lo:0, hi:1, lbl:'Drift' }, { k:'driftRate', lo:0, hi:1, lbl:'Rate' },
+      { k:'driftSize', lo:0, hi:1, lbl:'Size' }, { k:'driftFb', lo:0, hi:1, lbl:'FBk' },
+      { k:'driftSupr', lo:0, hi:1, lbl:'Supr' }, { k:'driftBlur', lo:0, hi:1, lbl:'Blur' },
+      { k:'driftDamp', lo:0, hi:1, lbl:'Damp' }, { k:'driftMix', lo:0, hi:1, lbl:'Mix' },
     ],
 ];
 /* ---- FX sequencer UI state ---- */
@@ -378,7 +384,8 @@ function paintNav() {
     setButtonLED(MoveUndo,  WhiteLedDim, true);
     setButtonLED(MoveMute,  muteHeld ? WhiteLedBright : WhiteLedDim, true);
     setButtonLED(MoveCapture, menu === 4 ? WhiteLedBright : WhiteLedDim, true);
-    setButtonLED(MoveSample,  menu === 5 ? WhiteLedBright : WhiteLedDim, true);
+    setButtonLED(MoveSample,  menu === 7 ? WhiteLedBright : WhiteLedDim, true);
+    setButtonLED(MoveMenu,    menu === 5 ? WhiteLedBright : WhiteLedDim, true);
     setButtonLED(MoveCopy,    copyHeld ? WhiteLedBright : WhiteLedDim, true);
     setButtonLED(MoveLoop,    loopHeld ? WhiteLedBright : WhiteLedDim, true);
 }
@@ -1248,11 +1255,12 @@ globalThis.onMidiMessageInternal = function (data) {
             return; }
         if (d1 === MoveMute)  { muteHeld = d2 > 0; paintNav(); return; }     /* Mute modifier (lights the button) */
         if (d1 === MoveCapture && d2 > 0) { openMenu(4); return; }           /* Capture = Tape menu */
+        if (d1 === MoveMenu && d2 > 0) { openMenu(5); return; }              /* three-lines = Sessions menu */
         if (d1 === MoveSample) { sampleHeld = d2 > 0; paintNav(); if (d2 === 0) return; }
         if (d1 === MoveSample  && d2 > 0) {                                  /* Sample/Record button */
             if (shiftHeld) { spCmd('arm:' + sel); armedArr[sel] = !armedArr[sel];
                 setMsg('T' + (sel + 1) + (armedArr[sel] ? ' ARMED' : ' disarmed')); return; }
-            openMenu(5); return;                                             /* Sessions menu */
+            openMenu(7); return;                                             /* Sample button = Drift menu */
         }
         if (d1 === MoveCopy) { copyHeld = d2 > 0; if (!copyHeld) cloneSrc = -1; paintNav(); return; }
         if (d1 === MoveLoop) { loopHeld = d2 > 0; paintNav(); return; }
