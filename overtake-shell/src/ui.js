@@ -277,6 +277,7 @@ let view = 'main', viewUntil = 0;          /* 'main' | 'knobs' | 'wave' */
 const VIEW_MS = 10000;                     /* 10s of real time before falling back */
 let sampleHeld = false, jogHead = -1;      /* Shift+Sample+jog = arm threshold; P4 touch = head to move */
 let waveStr = '', headsStr = '';
+let waveStart = 0, waveEnd = 1;   /* current loop trim, for the waveform markers */
 function showView(v) { view = v; viewUntil = now() + VIEW_MS; dirty = true; }
 const LOOP_MULTS = [1.0, 0.5, 0.25, 0.125];
 const loopMultIdx = new Array(NV).fill(0);
@@ -1133,6 +1134,19 @@ function drawWaveView() {
             fontPrint4x5(ctx, Math.min(124, Math.max(0, x - 1)), 58, String(k + 1), 1);
         }
     }
+    if (waveStr && waveStr.length >= 256) {           /* Start / End trim points: solid verticals + S / E labels */
+        const sx = Math.max(0, Math.min(127, Math.round(waveStart * 127)));
+        const ef = waveStart + waveEnd * (1 - waveStart);           /* End is a fraction of what's left after Start */
+        const ex = Math.max(0, Math.min(127, Math.round(ef * 127)));
+        for (let y = 11; y <= 56; y++) { px(sx, y); px(ex, y); }    /* solid, unlike the dashed playheads */
+        const label = (x, ch, right) => {
+            const lx = right ? Math.max(0, x - 5) : Math.min(123, x + 2);
+            fill_rect(lx - 1, 10, 6, 7, 0);                         /* clear a slot so the letter reads over the wave */
+            fontPrint4x5(ctx, lx, 11, ch, 1);
+        };
+        label(sx, 'S', false);
+        label(ex, 'E', true);
+    }
     host_flush_display();
 }
 
@@ -1224,6 +1238,8 @@ globalThis.tick = function () {
     if (view === 'wave') {
         if (tickCount % 12 === 0) { const w = gp('wave'); if (w) waveStr = w; }
         const h = gp('heads'); if (h) headsStr = h;
+        if (tickCount % 12 === 5) { const a = parseFloat(gp('v_start')); if (!isNaN(a)) waveStart = a;
+                                    const b = parseFloat(gp('v_end'));   if (!isNaN(b)) waveEnd = b; }
     }
     if (tickCount % 6 === 0) pollStates();
     if (tickCount % 15 === 3) { const c = gp('cpu'); if (c) cpu = c; }
@@ -1345,7 +1361,10 @@ globalThis.onMidiMessageInternal = function (data) {
             knobVals[k] = nv;
             if (def.e2) { sp(def.k, nv > 0.5 ? '1' : '0'); lastKnobVal = def.e2[nv > 0.5 ? 1 : 0]; }
             else { sp(def.k, nv.toFixed(4)); lastKnobVal = def.st ? ((nv * 12 >= 0 ? '+' : '') + (nv * 12).toFixed(1) + 'st') : def.spd ? Math.pow(2, nv).toFixed(2) + 'x' : (def.clk ? (0.25 * Math.pow(16, nv)).toFixed(2) + 'x' : nv.toFixed(2)); }
-            lastKnob = k; lastKnobLbl = def.lbl; showView('knobs');
+            lastKnob = k; lastKnobLbl = def.lbl;
+            if (def.k === 'v_start') { waveStart = nv; showView('wave'); }
+            else if (def.k === 'v_end') { waveEnd = nv; showView('wave'); }
+            else showView('knobs');
         }
         return;
     }
