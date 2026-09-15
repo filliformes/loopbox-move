@@ -216,12 +216,45 @@ design-spec.md             full design rationale
 
 ## Credits
 
-- **Palette / Clouds** texture engine after Mutable Instruments *Clouds* and *Warps*.
-- **signalsmith** stretch/DSP helpers.
-- Glitch behaviours inspired by *Forgetful* (Stumble) and *Smack* (Seed slice re-order);
-  tape and session patterns after *Magneto*; playhead ideas from *wrms* and *concrete*.
+LoopBox stands on a lot of open work. Code that is vendored or ported is used under its own
+license (see `overtake-shell/vendor/` and the file headers); the rest is inspiration.
 
-All third-party DSP is used under its own open-source license; see `overtake-shell/vendor/`.
+### Code used
+- **Mutable Instruments Clouds and Warps** — Émilie Gillet, MIT. The Palette texture and
+  Space engines. https://github.com/pichenettes/eurorack
+- **Signalsmith DSP library** — Geraint Luff, MIT. Filters, delays, STFT helpers.
+  https://github.com/Signalsmith-Audio/dsp
+- **Signalsmith Stretch 1.1.0** — Geraint Luff, MIT. The per-loop Pitch shifter.
+  https://github.com/Signalsmith-Audio/signalsmith-stretch
+- **Airwindows** — Chris Johnson, MIT. Ported or adapted: Spiral, Density, Mojo, Swell,
+  Tremolo, Pressure4, ToTape6 (flutter), DeRez2 (Interference), IronOxide (global saturation).
+  https://github.com/airwindows/airwindows · https://www.airwindows.com
+- **Dattorro plate** — Jon Dattorro, *Effect Design Part 1: Reverberator and Other Filters*,
+  JAES 45(9), 1997. The Plate send effect at the paper's delay lengths.
+  https://ccrma.stanford.edu/~dattorro/EffectDesignPart1.pdf
+- **Schwung** — Charles Vestal and contributors. The Overtake framework, and the knob-page
+  widgets (arc knobs, enum squares, buttons, header, bank bar, footer pills) are ported
+  verbatim from its `render_page_movy.mjs`. https://github.com/charlesvestal/schwung
+
+### Sibling Move modules (same author)
+- **Palette** — the 24-effect send engine LoopBox embeds. https://github.com/filliformes/palette-move
+- **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
+- **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
+- **Structor** and **Smack** — the Seed slice re-order and several punch-effect ideas.
+  https://github.com/filliformes
+
+### Design inspiration
+- **Polyend MESS** — the FX sequencer: per-step locks, play chance, extensions, gate and swing.
+  https://polyend.com/mess/
+- **1010music Blackbox** — sixteen free-running pads. https://1010music.com/product/blackbox
+- **Kinotone Ribbons** — tape character as an instrument. https://kinotone.com/ribbons
+- **Puremagnetik LAPS** — layered asynchronous loops. https://puremagnetik.com
+- **Chase Bliss Blooper, Mood MK2, Generation Loss MK2** — Stability, the old Clock's
+  degradation, Disintegration overdub, Generations. https://www.chasebliss.com
+- **Hologram Microcosm** — the grain and glide punch families. https://hologramelectronics.com/microcosm
+- **norns loopers** — wrms, concrète, cranes, oooooo, otis, reels, ndls, samsara, mlre, nydl,
+  giro: multiple playheads, threshold arm, loop multiples, jog scrub. https://norns.community
+- **Forgetful** — the Stumble perform gesture. https://github.com/charlesvestal/schwung (module catalog)
 
 ## License
 
