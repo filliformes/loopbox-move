@@ -179,6 +179,7 @@ const MENU_DEFS = [
       { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },     { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' },
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },
       { k:'inSource', opts:['Line','Master'], lbl:'InSrc' },
+      { k:'loopFiltMode', opts:['Clean','SEM','MS-20','Steiner','Ladder4','Ladder2','Ladder1','Prophet','Oberheim','Diode','K35','Vintage'], lbl:'LpFlt' },
     ],
     [ /* 4 — Tape (Capture button): the record-path tape machine, Magneto-style */
       { k:'preamp', opts:PREAMP_NAMES, lbl:'Tape' },  { k:'tapeDrive', lo:0, hi:1, lbl:'Drive' },
@@ -1010,7 +1011,7 @@ const FULL_NAMES = {
     fxseqGate: 'Gate', fxseqSwing: 'Swing', fxseqDir: 'Direction', fxseqClear: 'Clear Pattern',
     mfCut: 'Master Cut', mfReso: 'Master Reso', mfMode: 'Filter Mode', mClock: 'Master Clock',
     mClockMode: 'Clock Mode', mClockSpot: 'Clock Spot', perfTrem: 'Pump Depth', perfTremRate: 'Pump Rate',
-    masterEQ: 'Character', masterGlue: 'Glue Comp', tapeLimit: 'Tape Limiter', punchWidth: 'Punch Width',
+    masterEQ: 'Character', masterGlue: 'Glue Comp', tapeLimit: 'Tape Limiter', punchWidth: 'Punch Width', loopFiltMode: 'Loop Filter',
 };
 function fullName(d) { return (d && (FULL_NAMES[d.k] || d.lbl)) || ''; }
 /* The knob grid: loop page, menu, or (with a punch pad held) the held effect's

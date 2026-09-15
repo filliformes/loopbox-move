@@ -165,6 +165,7 @@ typedef struct {
     float eqBass, eqPresFreq, eqPresAmt, eqTreble;
     float pitch, filter, pan, volume, decay;
     Biquad djLpA, djHpA;
+    float lfStL[6], lfStR[6], lfG; int lfModeCache;   /* per-loop analog LP (mf_run voicing) */
     Biquad eqLow, eqMid, eqHigh, tiltLo, tiltHi;
     double flutBufL[FLUTTER_BUF], flutBufR[FLUTTER_BUF];
     int flutWr; double flutSweep, flutNextMax;
@@ -326,6 +327,7 @@ typedef struct {
     float perfTrem, perfTremRate; double tremPh;
     /* Settings 2: character EQ + glue + tape limiter */
     int masterEQ; float masterGlue, tapeLimit;
+    int loopFilterMode;                    /* Settings p2: analog character for every loop's LP */
     /* Drift: global COSMOS-style shifting-delay memory station (Sample-button menu) */
     float driftAmt, driftRate, driftSize, driftFb, driftSupr, driftBlur, driftDamp, driftMix;
     float driftSm[8];                 /* smoothed controls, no stepping */
@@ -511,16 +513,23 @@ static void *session_worker(void *arg){
 
 /* ---- DJ Filter (single-pole-smooth, Essaim-style: continuous sweep, low Q,
  * transparent at centre, one 12dB/oct biquad per side, state reset on LP<->HP) ---- */
+#define MF_NVOICE 12   /* master/loop filter voicings (fwd for the per-loop analog LP) */
+static inline float mf_run(float *st, float x, float g, float reso, int voicing);
 static void dj_filter_update(Voice *v) {
     double f=(double)v->filterSm;
     int newMode = (f < 0.485) ? -1 : ((f > 0.515) ? 1 : 0);
-    if(newMode!=v->djMode){ if(newMode<0)bq_reset(&v->djLpA); else if(newMode>0)bq_reset(&v->djHpA); v->djMode=newMode; }
+    if(newMode!=v->djMode){ if(newMode<0){ bq_reset(&v->djLpA); v->lfModeCache=-99; } else if(newMode>0)bq_reset(&v->djHpA); v->djMode=newMode; }
     double Q=0.70710678+(double)v->djReso*5.3;   /* resonance: Butterworth -> ~6 */
-    if(newMode<0){ double lpF=200.0*pow(18000.0/200.0, f/0.485); if(lpF>18000.0)lpF=18000.0; bq_set_lp(&v->djLpA,lpF,Q); }
+    if(newMode<0){ double lpF=200.0*pow(18000.0/200.0, f/0.485); if(lpF>18000.0)lpF=18000.0; bq_set_lp(&v->djLpA,lpF,Q); v->lfG=tanf((float)(M_PI*lpF/SR)); }
     else if(newMode>0){ double t=(f-0.515)/0.485; double hpF=20.0*pow(2000.0/20.0, t); if(hpF>2000.0)hpF=2000.0; bq_set_hp(&v->djHpA,hpF,Q); }
 }
-static inline void dj_filter_stereo(Voice *v, double *l, double *r) {
-    if(v->djMode<0){ *l=bq_L(&v->djLpA,*l); *r=bq_R(&v->djLpA,*r); }
+static inline void dj_filter_stereo(Voice *v, int voicing, double *l, double *r) {
+    if(v->djMode<0){                       /* low-pass side runs the chosen analog voicing */
+        if(voicing<0)voicing=0; if(voicing>=MF_NVOICE)voicing=MF_NVOICE-1;
+        if(voicing!=v->lfModeCache){ for(int i=0;i<6;i++){ v->lfStL[i]=0.0f; v->lfStR[i]=0.0f; } v->lfModeCache=voicing; }
+        *l=(double)mf_run(v->lfStL,(float)*l,v->lfG,v->djReso,voicing);
+        *r=(double)mf_run(v->lfStR,(float)*r,v->lfG,v->djReso,voicing);
+    }
     else if(v->djMode>0){ *l=bq_L(&v->djHpA,*l); *r=bq_R(&v->djHpA,*r); }
 }
 
@@ -1112,7 +1121,7 @@ static void voice_render(Voice *v, loopbox_t *s, int n, double *outL, double *ou
     double sL=rawL,sR=rawR;
     sL=voice_saturate(sL,(double)v->saturation);sR=voice_saturate(sR,(double)v->saturation);
     voice_wowflutter_stereo(v,&sL,&sR,(double)v->wowFlutter);
-    dj_filter_stereo(v,&sL,&sR);
+    dj_filter_stereo(v,s->loopFilterMode,&sL,&sR);
     tilt_eq_stereo(v,&sL,&sR);studer_eq_stereo(v,&sL,&sR);
     if(s->stability>0.005f){sL=apply_stability(sL,(double)s->stability,&v->rng);sR=apply_stability(sR,(double)s->stability,&v->rng);
         double stabK=0.2+(double)s->stability*0.6;
@@ -1214,7 +1223,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         v->saturation=0.0f;v->wowFlutter=0.0f;v->send=0.0f;v->glitch=0.0f;
         v->tiltEQ=0.0f;v->decay=1.0f;v->eqBass=0.0f;v->eqPresFreq=0.5f;v->eqPresAmt=0.0f;v->eqTreble=0.0f;
         v->flutNextMax=0.5;v->rng=12345+i*7919;v->glLastSlice=-1;
-        v->djReso=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;
+        v->djReso=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;v->lfModeCache=-99;v->lfG=0.5f;
         v->comp=0.0f;v->clock=0.0f;v->psCache=-99.0f;v->psActive=0;v->psMix=0.0;v->psNudge=0;
         v->ps=ps_create(44100.0f,128,(i*512)/NUM_VOICES);   /* staggered so the 16 STFTs do not land in one callback */
         v->filterSm=0.5f;v->volSm=(double)v->volume;v->panSm=0.0;
@@ -1255,7 +1264,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     s->driftSm[4]=0.0f; s->driftSm[5]=0.40f; s->driftSm[6]=0.40f; s->driftSm[7]=0.0f;
     s->mfCut=1.0f; s->mfReso=0.0f; s->mfCutSm=1.0f; s->mfResoSm=0.0f; s->mfMode=0; s->mClock=0.5f; s->mClockMode=0; s->mClockSpot=0; s->mclkRatioSm=1.0f;
     s->perfTrem=0.0f; s->perfTremRate=0.08f; s->punchWidth=0.5f;   /* rate default -> di 0 = one pump per beat */
-    s->masterEQ=0; s->masterGlue=0.0f; s->tapeLimit=0.0f; master_eq_update(s); s->inSource=0;
+    s->masterEQ=0; s->masterGlue=0.0f; s->tapeLimit=0.0f; master_eq_update(s); s->inSource=0; s->loopFilterMode=0;
     s->sendAType=14;s->sendBType=17;s->sendAM1=0.4f;s->sendAM2=0.5f;s->sendADrift=0.2f;s->sendBM1=0.5f;s->sendBM2=0.5f;s->sendBDrift=0.2f;
     if(s->busA)pfx_select(s->busA,s->sendAType); if(s->busB)pfx_select(s->busB,s->sendBType);
     s->stMix=0.0f;s->stStep=0.3f;s->stOdds=0.5f;s->stSize=0.5f;s->stReach=0.3f;s->stKind=0;s->stStepLeft=1;s->stRng=0x2233aa55u;
@@ -1390,7 +1399,6 @@ static inline void dropout_sample(loopbox_t *s, double *mixL, double *mixR){
  * ladder family: 1/2/4-pole, Prophet, Oberheim, Diode-303, Vintage — ZDF with
  * tanh feedback for bounded self-oscillation). Clean-room VA math (Cytomic SVF +
  * Zavalishin ladder), the same engine as Fizzik's global filter. */
-#define MF_NVOICE 12
 static const char *mfmode_opts[MF_NVOICE] = {
     "Clean","SEM","MS-20","Steiner","Ladder4","Ladder2","Ladder1","Prophet","Oberheim","Diode","K35","Vintage" };
 static inline float mf_tanh(float x){ if(x<-3.0f)return -1.0f; if(x>3.0f)return 1.0f; float x2=x*x; return x*(27.0f+x2)/(27.0f+9.0f*x2); }
@@ -1415,13 +1423,13 @@ static inline float mf_run(float *st, float x, float g, float reso, int voicing)
     }
     float G=g/(1.0f+g); int poles; float kmax,drive;
     switch(voicing){
-        case 5:  poles=2; kmax=3.6f; drive=1.2f;  break;
-        case 6:  poles=1; kmax=2.6f; drive=1.1f;  break;
-        case 7:  poles=4; kmax=3.8f; drive=1.05f; break;
-        case 8:  poles=4; kmax=4.0f; drive=1.15f; break;
-        case 9:  poles=4; kmax=4.3f; drive=1.7f;  break;
-        case 11: poles=4; kmax=4.0f; drive=2.4f;  break;
-        default: poles=4; kmax=4.0f; drive=1.3f;  break;   /* Ladder 4-pole */
+        case 5:  poles=2; kmax=3.6f; drive=1.2f;  break;   /* Ladder 2-pole (12 dB) */
+        case 6:  poles=1; kmax=2.4f; drive=1.1f;  break;   /* Ladder 1-pole (6 dB) */
+        case 7:  poles=4; kmax=3.7f; drive=1.0f;  break;   /* Prophet — clean, creamy 24 dB */
+        case 8:  poles=2; kmax=4.3f; drive=1.15f; break;   /* Oberheim — resonant 12 dB (SEM-ish) */
+        case 9:  poles=4; kmax=4.5f; drive=1.8f;  break;   /* Diode / 303 — squelchy */
+        case 11: poles=4; kmax=4.0f; drive=2.6f;  break;   /* Vintage — warm, heavily driven */
+        default: poles=4; kmax=4.0f; drive=1.3f;  break;   /* Ladder 4-pole (24 dB) */
     }
     float k=kmax*reso;
     float xin=(drive>1.01f)? mf_tanh(x*drive)*(1.0f/drive) : x;
@@ -2038,6 +2046,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,2); s->inSource=(i>=0)?i:(atof(val)>0.5?1:0); return; }
     SETFR("perfTrem",perfTrem,0.0,1.0) SETFR("perfTremRate",perfTremRate,0.0,1.0) SETFR("punchWidth",punchWidth,0.0,1.0)
     if(strcmp(key,"masterEQ")==0){ int i=match_enum(val,meq_opts,MEQ_N); s->masterEQ=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MEQ_N-1); master_eq_update(s); return; }
+    if(strcmp(key,"loopFiltMode")==0){ int i=match_enum(val,mfmode_opts,MF_NVOICE); s->loopFilterMode=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MF_NVOICE-1); return; }
     SETFR("masterGlue",masterGlue,0.0,1.0) SETFR("tapeLimit",tapeLimit,0.0,1.0)
     SETFR("driftAmt",driftAmt,0.0,1.0) SETFR("driftRate",driftRate,0.0,1.0)
     SETFR("driftSize",driftSize,0.0,1.0) SETFR("driftFb",driftFb,0.0,1.0)
@@ -2361,7 +2370,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"masterLoCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterLoCut);
     if(strcmp(key,"masterHiCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterHiCut);
     GETP("masterVol",masterVol)
-    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,2);
+    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,2); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
     GETP("stability",stability) GETP("globalWowFlut",globalWowFlut) GETP("inputMonitor",inputMonitor) GETP("inputGain",inputGain)
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)
@@ -2428,7 +2437,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
         WF("tapeNoise",s->tapeNoise);WF("tapeDrive",s->tapeDrive);WF("tapeHF",s->tapeHF);
         WI("midiIn",s->midiIn);WF("armThresh",s->armThresh);WF("tapeLoCut",s->tapeLoCut);WF("tapeWow",s->tapeWow);WF("tapeFlut",s->tapeFlut);WF("tapeGen",s->tapeGen);
         /* Master + keyboard */
-        WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);WI("inSource",s->inSource);
+        WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);WI("inSource",s->inSource);WI("loopFiltMode",s->loopFilterMode);
         WF("driftAmt",s->driftAmt);WF("driftRate",s->driftRate);WF("driftSize",s->driftSize);WF("driftFb",s->driftFb);
         WF("driftSupr",s->driftSupr);WF("driftBlur",s->driftBlur);WF("driftDamp",s->driftDamp);WF("driftMix",s->driftMix);
         /* FX sequencer */
