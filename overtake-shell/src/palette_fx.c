@@ -34,7 +34,9 @@ enum {
     /* Diffusion (group 2) */ PFX_CASCADE, PFX_REELS, PFX_COLLAGE, PFX_REVERSE, PFX_SPACE, PFX_BLOOM,
     /* Texture   (group 3) */ PFX_FILTER, PFX_SQUASH, PFX_CASSETTE, PFX_BROKEN, PFX_INTERFERENCE, PFX_HALO,
     PFX_PLATE,              /* Dattorro plate reverb (own state pool, appended) */
-    PFX_COUNT               /* = 26 (Off + 24 + Plate) */
+    PFX_QUARTZ, PFX_PRISM,  /* dual-mode Hadamard 8-line FDN (Res / Essaim port, shared pool) */
+    PFX_VEIL,               /* modulated Householder FDN (Phasma port, own pool) */
+    PFX_COUNT               /* = 29 (Off + 24 + Plate + Quartz + Prism + Veil) */
 };
 
 static const char *FX_NAMES[PFX_COUNT] = {
@@ -43,7 +45,7 @@ static const char *FX_NAMES[PFX_COUNT] = {
     "Doubler","Vibrato","Phaser","Tremolo","Pitch","Shift",
     "Cascade","Reels","Collage","Reverse","Space","Bloom",
     "Filter","Squash","Cassette","Broken","Interference","Halo",
-    "Plate"
+    "Plate","Quartz","Prism","Veil"
 };
 
 extern void *pfx_clouds_alloc(int fx_id, float sr);
@@ -86,6 +88,8 @@ typedef struct {
     void  *heavy;
     int    heavy_kind;        /* PFX_* id the heavy ptr currently serves (0 = none) */
     void  *plate;             /* Dattorro plate state (pfx_plate_t*), alloc'd at create */
+    void  *fdn;               /* Quartz/Prism FDN state (pfx_fdn_t*), alloc'd at create — one pool, both modes */
+    void  *veil;              /* Veil Householder FDN state (pfx_veil_t*), alloc'd at create */
 } slot_dsp_t;
 
 typedef void (*fx_process_fn)(slot_dsp_t*, float*, float*, int,
@@ -918,6 +922,382 @@ static void fx_plate(slot_dsp_t *d, float *l, float *r, int n, float amount, flo
     for(int i=0;i<n;i++){ float wl,wr; pfx_plate_step(p,l[i],r[i],&wl,&wr,amount,macro,drift); l[i]=wl; r[i]=wr; }
 }
 
+/* ---- QUARTZ / PRISM — dual-mode modulated 8-line FDN reverb ---------------
+ * Ported from the reverb shared by Res, Essaim and Phasma (filliformes), which
+ * reproduces the two Ableton Max reverbs those instruments were built around:
+ *
+ *   QUARTZ — modulated 8x8 FDN with 4 series input-diffusion allpasses and
+ *            dual-band damping (HF one-pole + LF shelf). Dattorro/Lexicon
+ *            lineage; the classic room-to-hall voice (abl.dsp.quartz~ role).
+ *   PRISM  — the same tank with FREQUENCY-DEPENDENT DECAY: each line's feedback
+ *            splits into low/mid/high and every band decays on its own RT60,
+ *            so the tail changes colour as it rings (abl.dsp.prism~ role).
+ *
+ * Topology follows the Ghidra-read structure of those objects; the matrix
+ * (normalised Hadamard), delay lengths and coefficients are clean-room.
+ * One pool serves both — only one can be selected on a slot at a time.
+ * 100% wet, like Plate: Palette sits on a send bus.
+ */
+#define FDN_LINES 8
+#define FDN_LMAX  4096           /* per-line ring: max line is 1617*2 = 3234 @44.1k */
+#define FDN_NAP   4              /* input-diffusion allpasses */
+#define FDN_APMAX 1024
+#define FDN_PDMAX 8192           /* predelay ring (~186 ms) */
+
+static const int   FDN_BASE[FDN_LINES] = { 1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617 };
+static const int   FDN_APLEN[FDN_NAP]  = { 225, 341, 441, 556 };
+static const float FDN_APG[FDN_NAP]    = { 0.72f, 0.70f, 0.68f, 0.66f };
+
+typedef struct {
+    int    mode;                              /* 0 = Quartz, 1 = Prism */
+    /* smoothed control values (one pole per block) */
+    float  p_amt, p_mac, p_drf; int primed;
+    /* derived params */
+    double size, decay, damp, low_damp, diffusion, predelay_ms;
+    double mod_depth, mod_rate, crossover, lowmult, highmult, locut_hz;
+    /* tank */
+    float  line[FDN_LINES][FDN_LMAX];
+    int    linelen[FDN_LINES]; float linelen_s[FDN_LINES];   /* target + glided length */
+    int    lw[FDN_LINES];
+    float  damp_z[FDN_LINES], lo_z[FDN_LINES];               /* Quartz HF one-pole + LF shelf */
+    float  ls_z[FDN_LINES], hs_z[FDN_LINES];                 /* Prism band splits */
+    float  gain[FDN_LINES], glow[FDN_LINES], ghigh[FDN_LINES];
+    double modph[FDN_LINES];
+    float  ls_a, hs_a;
+    /* input diffusion + predelay + wet low cut */
+    float  ap[FDN_NAP][FDN_APMAX]; int apw[FDN_NAP];
+    float  pd[2][FDN_PDMAX]; int pdw;
+    float  hp_x[2], hp_y[2];
+} pfx_fdn_t;
+
+/* delay lengths and per-band decay gains from size / decay / crossover */
+static void fdn_recompute(pfx_fdn_t *f){
+    double scale = 0.35 + 1.65 * f->size;
+    double rt60  = 0.25 + f->decay * f->decay * 11.75;          /* 0..1 -> 0.25..12 s */
+    double lowsplit  = clampf((float)(400.0  * pow(4.0, f->crossover - 0.3)),   60.0f, 3000.0f);
+    double highsplit = clampf((float)(5500.0 * pow(4.0, f->crossover - 0.3)), 1500.0f, 14000.0f);
+    f->ls_a = (float)(1.0 - exp(-(double)TWO_PI * lowsplit  / SR));
+    f->hs_a = (float)(1.0 - exp(-(double)TWO_PI * highsplit / SR));
+    for(int i=0;i<FDN_LINES;i++){
+        int L = (int)(FDN_BASE[i] * scale);
+        if(L < 8) L = 8; if(L > FDN_LMAX - 64) L = FDN_LMAX - 64;
+        f->linelen[i] = L;
+        double t = (double)L / SR;
+        double lm = f->lowmult  > 0.02 ? f->lowmult  : 0.02;
+        double hm = f->highmult > 0.02 ? f->highmult : 0.02;
+        f->gain[i]  = (float)pow(10.0, -3.0 * t / rt60);
+        f->glow[i]  = (float)pow(10.0, -3.0 * t / (rt60 * lm));
+        f->ghigh[i] = (float)pow(10.0, -3.0 * t / (rt60 * hm));
+    }
+}
+
+static void fdn_init(pfx_fdn_t *f, int mode){
+    f->mode = mode;
+    f->size = 0.6; f->decay = 0.6; f->damp = 0.3; f->low_damp = 0.35;
+    f->diffusion = 0.85; f->predelay_ms = 20.0;
+    f->mod_depth = 6.0; f->mod_rate = 0.5;
+    f->crossover = 0.3; f->lowmult = 1.0; f->highmult = 1.0; f->locut_hz = 200.0;
+    f->primed = 0;
+    for(int i=0;i<FDN_LINES;i++) f->modph[i] = (double)i / FDN_LINES;   /* staggered */
+    fdn_recompute(f);
+    for(int i=0;i<FDN_LINES;i++) f->linelen_s[i] = (float)f->linelen[i];
+}
+
+/* fractional read `delay` samples back. The ring is a FIXED FDN_LMAX, so the
+ * effective length can glide — Size morphs tape-style instead of clicking. */
+static inline float fdn_read(pfx_fdn_t *f, int i, double delay){
+    double rp = (double)f->lw[i] - delay;
+    while(rp < 0) rp += FDN_LMAX;
+    int i0 = (int)rp; double frac = rp - i0;
+    if(i0 >= FDN_LMAX) i0 -= FDN_LMAX;
+    int i1 = i0 + 1; if(i1 >= FDN_LMAX) i1 = 0;
+    return f->line[i][i0] * (float)(1.0 - frac) + f->line[i][i1] * (float)frac;
+}
+static inline float fdn_ap(pfx_fdn_t *f, int i, float x, float dscale){
+    int L = FDN_APLEN[i], r = f->apw[i];
+    float g = FDN_APG[i] * dscale, buf = f->ap[i][r];
+    float y = -g * x + buf;
+    f->ap[i][r] = x + g * y;
+    f->apw[i] = (r + 1) % L;
+    return y;
+}
+
+/* Block process, 100% wet. The per-line LFO is evaluated once per block and
+ * ramped across it — 8 sin() per block instead of 8 per sample, and at <=2 Hz
+ * the ramp is indistinguishable from the curve. */
+static void fdn_process(pfx_fdn_t *f, float *l, float *r, int n){
+    float damp_a  = clampf((float)(1.0 - f->damp * 0.85), 0.05f, 1.0f);
+    float dscale  = (float)(0.15 + 0.85 * f->diffusion);
+    float lowkeep = clampf((float)(1.0 - f->low_damp * 0.9), 0.05f, 1.0f);
+    float locut_a = (float)((double)TWO_PI * f->locut_hz / SR); if(locut_a > 0.5f) locut_a = 0.5f;
+    float hp_a    = 1.0f - locut_a; if(hp_a < 0.0f) hp_a = 0.0f;
+    int pdlen = (int)(f->predelay_ms * 0.001 * SR);
+    if(pdlen < 1) pdlen = 1; if(pdlen > FDN_PDMAX-1) pdlen = FDN_PDMAX-1;
+
+    float mod0[FDN_LINES], modInc[FDN_LINES];
+    for(int i=0;i<FDN_LINES;i++){
+        double step = f->mod_rate * (0.7 + 0.09 * i) / SR;
+        mod0[i] = (float)(f->mod_depth * sin((double)TWO_PI * f->modph[i]));
+        double end = f->modph[i] + step * n;
+        modInc[i] = (float)((f->mod_depth * sin((double)TWO_PI * end) - mod0[i]) / (n > 0 ? n : 1));
+        f->modph[i] = end; while(f->modph[i] >= 1.0) f->modph[i] -= 1.0;
+    }
+
+    for(int s=0;s<n;s++){
+        float d[FDN_LINES], fb[FDN_LINES];
+        /* predelay */
+        int rp = f->pdw - pdlen; while(rp < 0) rp += FDN_PDMAX;
+        float pdL = f->pd[0][rp], pdR = f->pd[1][rp];
+        f->pd[0][f->pdw] = l[s]; f->pd[1][f->pdw] = r[s];
+        f->pdw = (f->pdw + 1) % FDN_PDMAX;
+        /* input diffusion */
+        float x = 0.5f * (pdL + pdR);
+        for(int i=0;i<FDN_NAP;i++) x = fdn_ap(f, i, x, dscale);
+        /* modulated fractional taps */
+        for(int i=0;i<FDN_LINES;i++){
+            f->linelen_s[i] += ((float)f->linelen[i] - f->linelen_s[i]) * 0.0006f;   /* ~35 ms glide */
+            d[i] = fdn_read(f, i, (double)f->linelen_s[i] - 2.0 - (mod0[i] + modInc[i]*s));
+        }
+        /* 8-point normalised Hadamard (fast Walsh-Hadamard, 3 stages) */
+        { float a[8];
+          for(int i=0;i<8;i++) a[i] = d[i];
+          for(int st=1; st<8; st<<=1)
+              for(int j=0; j<8; j += (st<<1))
+                  for(int k=0;k<st;k++){ float u=a[j+k], v=a[j+k+st]; a[j+k]=u+v; a[j+k+st]=u-v; }
+          for(int i=0;i<8;i++) fb[i] = a[i] * 0.35355339f;   /* 1/sqrt(8) */
+        }
+        /* write back, coloured by the mode's absorption */
+        for(int i=0;i<FDN_LINES;i++){
+            float v = x + fb[i];
+            if(f->mode){   /* PRISM: per-band decay */
+                float low  = (f->ls_z[i] += f->ls_a * (v - f->ls_z[i]));
+                float rem  = v - low;
+                float mid  = (f->hs_z[i] += f->hs_a * (rem - f->hs_z[i]));
+                float high = rem - mid;
+                v = low * f->glow[i] + mid * f->gain[i] + high * f->ghigh[i];
+            } else {       /* QUARTZ: HF damping -> decay -> LF shelf */
+                f->damp_z[i] += damp_a * (v - f->damp_z[i]);
+                v = f->damp_z[i] * f->gain[i];
+                f->lo_z[i] += locut_a * (v - f->lo_z[i]);
+                v = (v - f->lo_z[i]) + f->lo_z[i] * lowkeep;
+            }
+            if(v > 4.0f) v = 4.0f; else if(v < -4.0f) v = -4.0f;
+            f->line[i][f->lw[i]] = v;
+            f->lw[i] = (f->lw[i] + 1) % FDN_LMAX;
+        }
+        /* signed output taps (decorrelated), then a one-pole low cut on the wet */
+        float oL = (d[0] - d[1] + d[2] - d[3] + d[6] - d[7]) * 0.4082f;   /* 1/sqrt(6) */
+        float oR = (d[4] - d[5] + d[6] - d[7] + d[0] - d[2]) * 0.4082f;
+        float hL = hp_a * (f->hp_y[0] + oL - f->hp_x[0]); f->hp_x[0] = oL; f->hp_y[0] = hL;
+        float hR = hp_a * (f->hp_y[1] + oR - f->hp_x[1]); f->hp_x[1] = oR; f->hp_y[1] = hR;
+        l[s] = hL; r[s] = hR;
+    }
+}
+
+/* Shared control mapping. Params are smoothed per block, so a knob turn glides
+ * the tank (size glides by construction, the decay gains follow the smoother). */
+static void fdn_run(slot_dsp_t *dsp, float *l, float *r, int n, int mode,
+                    float amount, float macro, float drift){
+    pfx_fdn_t *f = (pfx_fdn_t*)dsp->fdn; if(!f) return;      /* NULL pool -> passthrough */
+    if(f->mode != mode || !f->primed){ fdn_init(f, mode); }   /* fresh pool or mode switch */
+    if(!f->primed){ f->p_amt = amount; f->p_mac = macro; f->p_drf = drift; f->primed = 1; }
+    else { f->p_amt += (amount - f->p_amt) * 0.25f; f->p_mac += (macro - f->p_mac) * 0.25f;
+           f->p_drf += (drift  - f->p_drf) * 0.25f; }
+    float A = f->p_amt, M = f->p_mac, D = f->p_drf;
+    if(mode == 0){
+        /* QUARTZ — Amount: room to hall. Macro: dark to bright. Drift: still to swimming. */
+        f->size  = 0.20 + 0.80 * A;
+        f->decay = 0.15 + 0.85 * A;
+        f->damp      = 0.90 * (1.0 - M);           /* HF absorption */
+        f->low_damp  = 0.15 + 0.45 * (1.0 - M);    /* LF shelf */
+        f->locut_hz  = 90.0 + 220.0 * M;
+        f->diffusion = 0.55 + 0.45 * A;
+        f->lowmult = f->highmult = 1.0;
+        f->mod_depth   = 1.5 + 20.0 * D;
+        f->mod_rate    = 0.20 + 1.60 * D;
+        f->predelay_ms = 5.0 + 70.0 * D;
+    } else {
+        /* PRISM — Amount: decay. Macro: spectral tilt, lows ring <-> highs shimmer.
+         * Drift: crossover placement + modulation. */
+        f->size  = 0.45 + 0.55 * A;
+        f->decay = 0.30 + 0.70 * A;
+        f->damp = 0.10; f->low_damp = 0.20;
+        f->diffusion = 0.85;
+        { double t = (double)M * 2.0 - 1.0;        /* -1 dark/boomy .. +1 airy/shimmer */
+          f->lowmult  = (t < 0.0) ? (1.0 - t * 2.0)   : (1.0 - t * 0.72);   /* 3.0 .. 0.28 */
+          f->highmult = (t < 0.0) ? (1.0 + t * 0.72)  : (1.0 + t * 1.2); }  /* 0.28 .. 2.2 */
+        f->crossover   = 0.12 + 0.55 * D;
+        f->locut_hz    = 110.0 + 150.0 * M;
+        f->mod_depth   = 3.0 + 14.0 * D;
+        f->mod_rate    = 0.15 + 0.90 * D;
+        f->predelay_ms = 10.0 + 50.0 * D;
+    }
+    fdn_recompute(f);
+    fdn_process(f, l, r, n);
+}
+static void fx_quartz(slot_dsp_t *d, float *l, float *r, int n, float amount, float macro, float drift){
+    fdn_run(d, l, r, n, 0, amount, macro, drift);
+}
+static void fx_prism(slot_dsp_t *d, float *l, float *r, int n, float amount, float macro, float drift){
+    fdn_run(d, l, r, n, 1, amount, macro, drift);
+}
+
+/* ---- VEIL — modulated Householder FDN (Phasma's tank) ---------------------
+ * Ported from Phasma (filliformes, objects/fx/fx.c). A different animal from
+ * Quartz/Prism: the feedback is a HOUSEHOLDER reflection (m = x - (2/N)*sum)
+ * rather than a Hadamard mix, the four input diffusers are themselves
+ * LFO-MODULATED (the CloudSeed trick, with all LFOs refreshed every 8 samples),
+ * the lines are long (23-83 ms) and damped in-loop. That combination is what
+ * makes it lush and non-metallic where an 8-line tank usually rings.
+ * Phasma's Prism band-split colouring rides along on Drift.
+ * Mono tank (as in the source), stereo taps for width. 100% wet.
+ */
+#define VEIL_LINE 8
+#define VEIL_DIFF 4
+#define VEIL_LPOOL 50432         /* sum of per-line rings @44.1k (see VEIL_LMS) */
+#define VEIL_DPOOL 5248          /* sum of per-diffuser rings */
+
+static const float VEIL_LMS[VEIL_LINE]  = { 23.1f, 29.3f, 37.7f, 43.9f, 53.3f, 61.1f, 71.9f, 83.1f };
+static const float VEIL_DMS[VEIL_DIFF]  = { 6.2f, 9.7f, 13.3f, 17.1f };
+static const float VEIL_LMODR[VEIL_LINE]= { 0.071f,0.093f,0.111f,0.130f,0.147f,0.163f,0.181f,0.194f }; /* Hz */
+static const float VEIL_DMODR[VEIL_DIFF]= { 0.91f, 1.13f, 1.37f, 1.61f };
+
+typedef struct {
+    int    ready;
+    float  p_amt, p_mac, p_drf; int primed;
+    /* flat pools + per-slot offsets (one alloc, no per-line buffers) */
+    float  lbuf[VEIL_LPOOL]; int loff[VEIL_LINE], lmax[VEIL_LINE], llen[VEIL_LINE], lw[VEIL_LINE];
+    float  dbuf[VEIL_DPOOL]; int doff[VEIL_DIFF], dmax[VEIL_DIFF], dlen[VEIL_DIFF], dw[VEIL_DIFF];
+    double lph[VEIL_LINE], dph[VEIL_DIFF];
+    float  llfo[VEIL_LINE], dlfo[VEIL_DIFF], lmod[VEIL_LINE], llp[VEIL_LINE];
+    int    modctr;
+    float  g, damp, modscale;
+    float  pr_ls_z[VEIL_LINE], pr_hs_z[VEIL_LINE], pr_ls_a, pr_hs_a;
+    float  glow, gmid, ghigh;
+} pfx_veil_t;
+
+static void veil_init(pfx_veil_t *v){
+    int off = 0;
+    for(int i=0;i<VEIL_LINE;i++){
+        int m = (int)((VEIL_LMS[i] * 2.6f + 10.0f) * SR / 1000.0f);
+        if(off + m > VEIL_LPOOL) m = VEIL_LPOOL - off;        /* pool guard */
+        if(m < 8) m = 8;
+        v->loff[i] = off; v->lmax[i] = m; off += m;
+        v->lph[i] = 0.09 * i;
+        v->lmod[i] = (float)((1.5 + 0.28 * i) * SR / 1000.0);  /* 1.5..3.5 ms */
+    }
+    off = 0;
+    for(int i=0;i<VEIL_DIFF;i++){
+        int m = (int)((VEIL_DMS[i] * 2.0f + 5.0f) * SR / 1000.0f);
+        if(off + m > VEIL_DPOOL) m = VEIL_DPOOL - off;
+        if(m < 8) m = 8;
+        v->doff[i] = off; v->dmax[i] = m; off += m;
+        v->dph[i] = 0.13 * i;
+        v->dlen[i] = (int)(VEIL_DMS[i] * SR / 1000.0f);
+        if(v->dlen[i] > v->dmax[i] - 2) v->dlen[i] = v->dmax[i] - 2;
+    }
+    v->g = 0.80f; v->damp = 0.35f; v->modscale = 1.0f;
+    v->glow = v->gmid = v->ghigh = v->g;
+    v->pr_ls_a = (float)(1.0 - exp(-(double)TWO_PI * 300.0 / SR));
+    v->pr_hs_a = (float)(1.0 - exp(-(double)TWO_PI * 4200.0 / SR));
+    v->ready = 1;
+}
+
+static inline float veil_read(const float *buf, int max, int w, float delay){
+    if(delay < 1.0f) delay = 1.0f;
+    float rp = (float)w - delay;
+    while(rp < 0.0f) rp += max;
+    int i0 = (int)rp; float fr = rp - i0; int i1 = i0 + 1; if(i1 >= max) i1 -= max;
+    return buf[i0] * (1.0f - fr) + buf[i1] * fr;
+}
+
+static void fx_veil(slot_dsp_t *dsp, float *l, float *r, int n,
+                    float amount, float macro, float drift){
+    pfx_veil_t *v = (pfx_veil_t*)dsp->veil; if(!v) return;    /* NULL pool -> passthrough */
+    if(!v->ready) veil_init(v);
+    if(!v->primed){ v->p_amt = amount; v->p_mac = macro; v->p_drf = drift; v->primed = 1; }
+    else { v->p_amt += (amount - v->p_amt) * 0.25f; v->p_mac += (macro - v->p_mac) * 0.25f;
+           v->p_drf += (drift  - v->p_drf) * 0.25f; }
+    float A = v->p_amt, M = v->p_mac, D = v->p_drf;
+
+    /* Amount: room size + tail length. Macro: dark -> bright (in-loop damping).
+     * Drift: movement + Phasma's Prism colouring (lows tighten, highs shimmer). */
+    float sscale = 0.5f + (0.1f + 0.9f * A) * 1.4f;
+    for(int i=0;i<VEIL_LINE;i++){
+        int len = (int)(VEIL_LMS[i] * sscale * SR / 1000.0f);
+        if(len < 2) len = 2; if(len > v->lmax[i] - 2) len = v->lmax[i] - 2;
+        v->llen[i] = len;
+    }
+    v->g    = 0.55f + 0.37f * A;                     /* feedback, capped below 1 */
+    v->damp = 0.06f + 0.86f * M;                     /* one-pole coeff: higher = brighter */
+    v->modscale = 0.35f + 1.30f * D;
+    { float lowmult  = 1.0f + (0.50f - 1.0f) * D;    /* lows decay up to 2x faster */
+      float highmult = 1.0f + (1.18f - 1.0f) * D;    /* highs ring ~18% longer     */
+      v->gmid  = v->g;
+      v->glow  = v->g * lowmult;
+      v->ghigh = v->g * highmult;
+      if(v->ghigh > 0.94f) v->ghigh = 0.94f; }       /* keep feedback < 1 (stable) */
+
+    for(int s=0;s<n;s++){
+        /* all LFOs refreshed every 8 samples (cheap, still smooth) */
+        if(++v->modctr >= 8){
+            v->modctr = 0;
+            for(int i=0;i<VEIL_DIFF;i++){
+                v->dph[i] += VEIL_DMODR[i] * 8.0 / SR; if(v->dph[i] >= 1.0) v->dph[i] -= 1.0;
+                v->dlfo[i] = (float)sin(v->dph[i] * (double)TWO_PI);
+            }
+            for(int i=0;i<VEIL_LINE;i++){
+                v->lph[i] += VEIL_LMODR[i] * 8.0 / SR; if(v->lph[i] >= 1.0) v->lph[i] -= 1.0;
+                v->llfo[i] = (float)sin(v->lph[i] * (double)TWO_PI);
+            }
+        }
+        /* input diffusion: four series MODULATED allpasses */
+        float x = 0.5f * (l[s] + r[s]);
+        for(int d=0; d<VEIL_DIFF; d++){
+            float *buf = v->dbuf + v->doff[d];
+            float delay = v->dlen[d] + v->dlfo[d] * (0.3f * SR / 1000.0f) * v->modscale;
+            float bufout = veil_read(buf, v->dmax[d], v->dw[d], delay);
+            const float ag = 0.7f;
+            float inv = x + bufout * ag;
+            buf[v->dw[d]] = inv;
+            v->dw[d] = (v->dw[d] + 1) % v->dmax[d];
+            x = bufout - inv * ag;
+        }
+        float inj = x * 0.5f;
+
+        /* FDN: modulated reads + in-loop damping, Householder mix, write back */
+        float lo[VEIL_LINE], sum = 0.0f;
+        for(int i=0;i<VEIL_LINE;i++){
+            float delay = v->llen[i] + v->llfo[i] * v->lmod[i] * v->modscale;
+            float rd = veil_read(v->lbuf + v->loff[i], v->lmax[i], v->lw[i], delay);
+            v->llp[i] += v->damp * (rd - v->llp[i]);
+            if(!(v->llp[i] > 1e-20f || v->llp[i] < -1e-20f)) v->llp[i] = 0.0f;   /* denormal flush */
+            lo[i] = v->llp[i]; sum += lo[i];
+        }
+        float hf = (2.0f / VEIL_LINE) * sum;                  /* Householder reflection */
+        for(int i=0;i<VEIL_LINE;i++){
+            float m = lo[i] - hf;
+            /* Prism band split: low+mid+high == m, so at Drift=0 this is exactly g*m */
+            float low  = (v->pr_ls_z[i] += v->pr_ls_a * (m - v->pr_ls_z[i]));
+            float rem  = m - low;
+            float mid  = (v->pr_hs_z[i] += v->pr_hs_a * (rem - v->pr_hs_z[i]));
+            float high = rem - mid;
+            if(!(v->pr_ls_z[i] > 1e-20f || v->pr_ls_z[i] < -1e-20f)) v->pr_ls_z[i] = 0.0f;
+            if(!(v->pr_hs_z[i] > 1e-20f || v->pr_hs_z[i] < -1e-20f)) v->pr_hs_z[i] = 0.0f;
+            float w = inj + low * v->glow + mid * v->gmid + high * v->ghigh;
+            if(!(w * w < 1e18f)) w = 0.0f;                    /* self-heal: never store inf/NaN */
+            v->lbuf[v->loff[i] + v->lw[i]] = w;
+            v->lw[i] = (v->lw[i] + 1) % v->lmax[i];
+        }
+        /* signed stereo taps off the damped line outputs (the source sums to mono) */
+        float oL = (lo[0] - lo[1] + lo[2] - lo[3] + lo[6] - lo[7]) * 0.4082f;
+        float oR = (lo[4] - lo[5] + lo[6] - lo[7] + lo[0] - lo[2]) * 0.4082f;
+        if(!(oL * oL < 1e18f)) oL = 0.0f;
+        if(!(oR * oR < 1e18f)) oR = 0.0f;
+        l[s] = oL; r[s] = oR;
+    }
+}
+
 static const palette_effect_t FX_TABLE[PFX_COUNT] = {
     [PFX_OFF]          = { fx_passthrough,   NULL },
     [PFX_DRIVE]        = { fx_drive,         NULL },
@@ -945,6 +1325,9 @@ static const palette_effect_t FX_TABLE[PFX_COUNT] = {
     [PFX_INTERFERENCE] = { fx_interference,  NULL },
     [PFX_HALO]         = { fx_halo,          NULL },  /* pure-C resonator pad (replaces FFT Freeze) */
     [PFX_PLATE]        = { fx_plate,         NULL },  /* Dattorro plate reverb (own state pool) */
+    [PFX_QUARTZ]       = { fx_quartz,        NULL },  /* modulated 8-line FDN, dual-band damping */
+    [PFX_PRISM]        = { fx_prism,         NULL },  /* same tank, frequency-dependent decay   */
+    [PFX_VEIL]         = { fx_veil,          NULL },  /* Householder tank, modulated diffusers  */
 };
 
 
@@ -969,14 +1352,18 @@ static void pfx_slot_reset(slot_dsp_t *d){
     float   *dl_l = d->dl_l, *dl_r = d->dl_r;
     void    *heavy = d->heavy; int hk = d->heavy_kind;
     void    *plate = d->plate;
+    void    *fdn = d->fdn;
+    void    *veil = d->veil;
     uint32_t seed = d->seed;
     memset(d, 0, sizeof(slot_dsp_t));
     d->dl_l = dl_l; d->dl_r = dl_r;
     d->heavy = heavy; d->heavy_kind = hk; d->seed = seed;
-    d->plate = plate;
+    d->plate = plate; d->fdn = fdn; d->veil = veil;
     if(dl_l) memset(dl_l, 0, MAX_DELAY*sizeof(float));
     if(dl_r) memset(dl_r, 0, MAX_DELAY*sizeof(float));
     if(plate) memset(plate, 0, sizeof(pfx_plate_t));   /* clear reverb tail on select change */
+    if(fdn)   memset(fdn,   0, sizeof(pfx_fdn_t));     /* same for the FDN tank (re-inits on next block) */
+    if(veil)  memset(veil,  0, sizeof(pfx_veil_t));    /* and the Veil tank */
 }
 
 pfx_slot *pfx_create(float sr){
@@ -991,6 +1378,8 @@ pfx_slot *pfx_create(float sr){
     }
     s->dsp.seed = 0x9e3779b9u;
     s->dsp.plate = calloc(1, sizeof(pfx_plate_t));   /* NULL-safe: plate passes through on OOM */
+    s->dsp.fdn   = calloc(1, sizeof(pfx_fdn_t));     /* NULL-safe: Quartz/Prism pass through on OOM */
+    s->dsp.veil  = calloc(1, sizeof(pfx_veil_t));    /* NULL-safe: Veil passes through on OOM */
     s->select   = PFX_OFF;
     /* pre-allocate the heavy Clouds engines once, off the audio thread (NULL-safe:
      * a NULL pool makes the corresponding effect passthrough). */
@@ -1002,7 +1391,7 @@ pfx_slot *pfx_create(float sr){
 void pfx_destroy(pfx_slot *s){
     if(!s) return;
     free(s->dsp.dl_l); free(s->dsp.dl_r);       /* heavy pools are separate */
-    free(s->dsp.plate);
+    free(s->dsp.plate); free(s->dsp.fdn); free(s->dsp.veil);
     if(s->space_pool) pfx_clouds_free(s->space_pool);
     if(s->bloom_pool) pfx_clouds_free(s->bloom_pool);
     free(s);

@@ -1,7 +1,7 @@
 #ifndef PALETTE_FX_H
 #define PALETTE_FX_H
-#define PFX_NUM 26                       /* Off + 24 + Plate */
-const char *pfx_name(int id);            /* id 0..25; "Off","Drive",...,"Plate" */
+#define PFX_NUM 29                       /* Off + 24 + Plate + Quartz + Prism + Veil */
+const char *pfx_name(int id);            /* id 0..28; "Off","Drive",...,"Plate","Quartz","Prism","Veil" */
 typedef struct pfx_slot pfx_slot;        /* opaque per-bus state */
 pfx_slot *pfx_create(float sr);          /* allocs slot state incl delay lines + clouds pools; NULL on OOM. NOT audio-thread. */
 void pfx_destroy(pfx_slot *s);

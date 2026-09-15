@@ -131,7 +131,21 @@ Knobs 5–8 only follow a pad while it is physically held; latched pads keep run
 Press the same button again, or **Back**, to close a menu. Enums step once per four detents so a fast turn does not race through the list.
 
 - **Input Tape** — 13 tape styles including a true **Tapeless** bypass (default Clean), drive, wow, flutter, HF rolloff, low cut, hiss and **Generations** (repeated-dub loss). It shapes what gets recorded.
-- **Send FX** — two Palette buses (26 effects: Drive, Sweeten, Fuzz, Howl, Fold, Swell, Doubler, Vibrato, Phaser, Tremolo, Pitch, Shift, Cascade, Reels, Collage, Reverse, Space, Bloom, Filter, Squash, Cassette, Broken, Interference, Halo, Plate), each with Amount, Macro and Drift. Plate is a Dattorro plate at the paper's delay lengths. Effect switches happen on the worker; the bus mutes for a few milliseconds while it swaps.
+- **Send FX** — two Palette buses (29 effects: Drive, Sweeten, Fuzz, Howl, Fold, Swell, Doubler, Vibrato, Phaser, Tremolo, Pitch, Shift, Cascade, Reels, Collage, Reverse, Space, Bloom, Filter, Squash, Cassette, Broken, Interference, Halo, Plate, Quartz, Prism, Veil), each with Amount, Macro and Drift. Effect switches happen on the worker; the bus mutes for a few milliseconds while it swaps.
+
+  The last four are full reverbs, all 100% wet (they sit on a send):
+
+  | Effect | Tank | Amount | Macro | Drift |
+  |---|---|---|---|---|
+  | **Plate** | Dattorro plate at the paper's delay lengths | decay | pre-delay + darkening | damping |
+  | **Quartz** | 8-line Hadamard FDN, 4 input diffusers, HF one-pole + LF shelf damping | room → hall | dark → bright | modulation + pre-delay |
+  | **Prism** | the same tank with per-band RT60: lows, mids and highs decay separately | decay length | tilt: lows ring ⇄ highs shimmer | crossover + modulation |
+  | **Veil** | Householder FDN with LFO-modulated diffusers, long in-loop-damped lines | size + tail | dark → bright | movement + band colour |
+
+  Quartz and Prism are ported from Res and Essaim, where they stand in for Ableton's
+  `abl.dsp.quartz~` and `abl.dsp.prism~`; Veil is Phasma's tank, which is what makes it
+  lush rather than metallic. Size changes glide, so turning Amount morphs the room
+  tape-style instead of clicking.
 - **Perform** — Stumble (a probabilistic step glitcher), plus **Jump** (crossfaded random jump on every playing loop) and **Scan** (a fast sweep) as buttons.
 - **MIDI** — off by default so Move's track MIDI cannot trigger loops. On, an external keyboard plays the selected loop chromatically with 8-voice polyphony.
 

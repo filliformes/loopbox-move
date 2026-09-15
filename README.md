@@ -13,7 +13,7 @@ and a MIDI-keyboard polyphony layer.
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
 - **Module:** `loopbox` · **Name:** LoopBox · **Abbrev:** LBX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.6.1 · **Manual:** [docs/MANUAL.md](docs/MANUAL.md) · **License:** GPL-3.0
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.7.0 · **Manual:** [docs/MANUAL.md](docs/MANUAL.md) · **License:** GPL-3.0
 
 ---
 
@@ -66,10 +66,19 @@ Navigate with **Down** (next) and **Up** (previous).
   mute, pause and stop.
 
 ### Two send buses — the Palette engine
-Send A and B each select from **26 effects** (Off + 24 Palette effects + a Dattorro **Plate**):
+Send A and B each select from **29 effects** (Off + 24 Palette effects + four reverbs):
 Drive, Sweeten, Fuzz, Howl, Fold, Swell, Doubler, Vibrato, Phaser, Tremolo, Pitch, Shift,
 Cascade, Reels, Collage, Reverse, Space, Bloom, Filter, Squash, Cassette, Broken,
-Interference, Halo, Plate — each with Amount / Macro / Drift.
+Interference, Halo, **Plate**, **Quartz**, **Prism**, **Veil** — each with Amount / Macro / Drift.
+
+The last four are proper reverbs, and the last three come from the standalone instruments:
+
+| | Tank | Amount | Macro | Drift |
+|---|---|---|---|---|
+| **Plate** | Dattorro plate | decay | pre-delay | damping |
+| **Quartz** | 8-line Hadamard FDN, dual-band damping | room → hall | dark → bright | still → swimming |
+| **Prism** | same tank, frequency-dependent decay | decay | lows ring ⇄ highs shimmer | crossover + movement |
+| **Veil** | Householder FDN, modulated diffusers | size + tail | dark → bright | movement + colour |
 
 ### Punch-in FX (right 16 pads)
 Sixteen momentary effects over a 2-second capture ring, in four families —
@@ -241,6 +250,12 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 - **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
 - **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
 - **Structor** — several punch-effect ideas. https://github.com/filliformes/structor-move
+- **Res** and **Essaim** — the Quartz and Prism reverbs: one dual-mode 8-line Hadamard FDN whose
+  two feedback colourings fill the roles of Ableton's `abl.dsp.quartz~` and `abl.dsp.prism~` Max
+  objects. https://github.com/filliformes/res · https://github.com/filliformes/essaim
+- **Phasma** — the Veil reverb: a modulated Householder FDN (Signalsmith-style tank with
+  CloudSeed-style modulated diffusers) carrying Prism's band-split colouring.
+  https://github.com/filliformes/Phasma
 
 ### Other Schwung modules
 - **Smack** — Tim Cox. The Seed slice re-order is modelled on its Seed parameter.
