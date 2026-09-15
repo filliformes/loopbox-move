@@ -26,16 +26,16 @@
   p{margin:.6em 0}
   code,kbd{font-family:var(--mono);font-size:.86em}
   kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:.06em .42em;color:#fff;white-space:nowrap;font-size:.8em}
-  .wrap{display:grid;grid-template-columns:230px 1fr;max-width:1180px;margin:0 auto;gap:0}
+  .wrap{display:grid;grid-template-columns:184px minmax(0,1fr);max-width:none;margin:0;gap:0}
   /* nav */
-  nav{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:26px 14px 40px 22px;border-right:1px solid var(--line)}
+  nav{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:24px 10px 40px 14px;border-right:1px solid var(--line)}
   nav .brand{font-weight:750;font-size:1.15rem;letter-spacing:.02em;margin-bottom:2px}
   nav .brand b{color:var(--accent)}
   nav .tag{color:var(--faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.14em;margin-bottom:22px}
   nav a{display:block;color:var(--dim);padding:5px 10px;border-radius:7px;font-size:.9rem;border-left:2px solid transparent}
   nav a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
   nav a.sub{padding-left:22px;font-size:.82rem;color:var(--faint)}
-  main{padding:0 clamp(18px,4vw,58px) 120px;min-width:0}
+  main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0;max-width:1120px}
   section{padding:46px 0 8px;border-top:1px solid var(--line)}
   section:first-child{border-top:none}
   .lede{color:var(--dim);font-size:1.05rem;max-width:62ch}
@@ -44,8 +44,8 @@
   .hero{padding:74px 0 30px;border:none}
   .hero h1{font-size:clamp(2.6rem,7vw,4.4rem);margin:.1em 0 .2em;letter-spacing:-.03em;background:linear-gradient(120deg,#fff 20%,var(--accent) 60%,var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
   .hero .sub{font-size:clamp(1.05rem,2.4vw,1.4rem);color:var(--dim);max-width:40ch}
-  .pills{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 6px}
-  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:.8rem;color:var(--dim)}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;margin:22px 0 6px}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:.76rem;color:var(--dim);white-space:nowrap}
   .pill b{color:var(--accent)}
   /* cards / grids */
   .grid{display:grid;gap:14px;margin:18px 0}
@@ -103,7 +103,8 @@
   .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin:18px 0}
   .shot figcaption{color:var(--dim);font-size:.82rem;margin-top:8px;text-align:center}
   .screen{width:100%;height:auto;display:block;background:#081210;border-radius:10px;border:1px solid #14312a;box-shadow:0 0 40px rgba(80,255,210,.06) inset}
-  .fx-fam{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .fx-fam{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:1000px){.fx-fam{grid-template-columns:repeat(2,1fr)}}
   .fx-fam .card h3 .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;vertical-align:middle}
   .muted{color:var(--faint)}
   .note{background:linear-gradient(180deg,#141b2a,#101521);border:1px solid #24304a;border-left:3px solid var(--accent2);border-radius:10px;padding:12px 16px;margin:16px 0;font-size:.92rem;color:var(--dim)}
@@ -115,7 +116,7 @@
     nav .brand,nav .tag{width:100%}
     nav a{border-left:none;padding:5px 9px}
     nav a.sub{display:none}
-    .g2,.g3{grid-template-columns:1fr}
+    .g2,.g3,.fx-fam{grid-template-columns:1fr}
   }
 </style>
 </head>
@@ -437,6 +438,7 @@ function hdr(left,right,inv){
 function bank(page,n){ let o='', x=0; const gap=n-1, area=128-gap; for(let b=0;b<n;b++){ if(b) x+=1; const seg=Math.floor((b+1)*area/n)-Math.floor(b*area/n); o+=rect(x,7,seg,b===page?2:1,S.ink); x+=seg; } return o; }
 /* arc knob: KNOB_R 8, arc 230..490 deg, pointer to 0.68 r */
 function knob(cx,cy,val){
+  if(!isFinite(val)) val=0;
   const r=8; let pts='';
   for(let i=0;i<=26;i++){ const a=(230+260*i/26)*Math.PI/180; pts+=(cx+r*Math.sin(a)).toFixed(2)+','+(cy-r*Math.cos(a)).toFixed(2)+' '; }
   const ang=(225+val*270)*Math.PI/180, px=cx+r*0.68*Math.sin(ang), py=cy-r*0.68*Math.cos(ang);
@@ -473,7 +475,8 @@ function knobPage(left,right,labels,vals,kinds,page,foot,touched,touchName,touch
   let o=hdr(touched>=0?touchName:left, touched>=0?touchVal:right, touched>=0);
   if(page!==undefined) o+=bank(page,4);
   const cols=[16,48,80,112], rowY=[9,33], lblY=[24,48];
-  for(let i=0;i<8;i++){ const cx=cols[i%4], row=i<4?0:1, cy=rowY[row]+8;
+  for(let i=0;i<8;i++){ if(labels[i]===undefined) continue;   /* an empty cell stays empty, as on the device */
+    const cx=cols[i%4], row=i<4?0:1, cy=rowY[row]+8;
     const k=(kinds&&kinds[i])||'k';
     if(k==='e') o+=enumsq(cx,rowY[row],vals[i]); else if(k==='b') o+=button(cx,cy-1); else o+=knob(cx,cy,vals[i]);
     if(labels[i]!==undefined) o+=label((i%4)*32,lblY[row],(touched===i&&touchVal!==undefined)?touchVal:labels[i],touched===i);
