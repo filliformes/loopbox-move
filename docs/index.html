@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoopBox: Manual</title>
+<meta name="description" content="LoopBox: a 16-track stereo tape looper for Ableton Move, built for ambient and experimental music. Quickstart, concept, and full effect reference.">
+<style>
+  :root{
+    --bg:#0c0e11; --bg2:#12151a; --panel:#171b22; --panel2:#1e232c; --line:#272d38;
+    --ink:#e7ecf2; --dim:#98a2b3; --faint:#5c6673;
+    --accent:#6fd6c4; --accent2:#c9a7ff; --hot:#ff6b6b;
+    --blue:#4aa3ff; --green:#4bd47a; --pink:#ff86c8; --purple:#b98bff; --yellow:#ffd24a; --red:#ff5b5b;
+    --scr:#0a1512; --scrink:#8effd8;
+    --mono:"SFMono-Regular",ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:radial-gradient(1200px 800px at 70% -10%,#151b27 0%,var(--bg) 55%) fixed;color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1,h2,h3{line-height:1.15;letter-spacing:-.01em;font-weight:650}
+  h2{font-size:clamp(1.5rem,3vw,2.1rem);margin:0 0 .3em}
+  h3{font-size:1.15rem;margin:1.6em 0 .4em;color:#fff}
+  p{margin:.6em 0}
+  code,kbd{font-family:var(--mono);font-size:.86em}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:.06em .42em;color:#fff;white-space:nowrap;font-size:.8em}
+  .wrap{display:grid;grid-template-columns:230px 1fr;max-width:1180px;margin:0 auto;gap:0}
+  /* nav */
+  nav{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:26px 14px 40px 22px;border-right:1px solid var(--line)}
+  nav .brand{font-weight:750;font-size:1.15rem;letter-spacing:.02em;margin-bottom:2px}
+  nav .brand b{color:var(--accent)}
+  nav .tag{color:var(--faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.14em;margin-bottom:22px}
+  nav a{display:block;color:var(--dim);padding:5px 10px;border-radius:7px;font-size:.9rem;border-left:2px solid transparent}
+  nav a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+  nav a.sub{padding-left:22px;font-size:.82rem;color:var(--faint)}
+  main{padding:0 clamp(18px,4vw,58px) 120px;min-width:0}
+  section{padding:46px 0 8px;border-top:1px solid var(--line)}
+  section:first-child{border-top:none}
+  .lede{color:var(--dim);font-size:1.05rem;max-width:62ch}
+  .eyebrow{color:var(--accent);font-family:var(--mono);font-size:.74rem;letter-spacing:.18em;text-transform:uppercase;margin-bottom:.7em}
+  /* hero */
+  .hero{padding:74px 0 30px;border:none}
+  .hero h1{font-size:clamp(2.6rem,7vw,4.4rem);margin:.1em 0 .2em;letter-spacing:-.03em;background:linear-gradient(120deg,#fff 20%,var(--accent) 60%,var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .sub{font-size:clamp(1.05rem,2.4vw,1.4rem);color:var(--dim);max-width:40ch}
+  .pills{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 6px}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:.8rem;color:var(--dim)}
+  .pill b{color:var(--accent)}
+  /* cards / grids */
+  .grid{display:grid;gap:14px;margin:18px 0}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card h3{margin-top:0}
+  .card.k{border-left:3px solid var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.9rem;overflow:hidden;border-radius:10px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:var(--dim);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+  tr:last-child td{border-bottom:none}
+  td:first-child{color:#fff;font-weight:600;white-space:nowrap}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  .scroll table{margin:0;border-radius:0}
+  /* steps / quickstart */
+  ol.steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  ol.steps li{counter-increment:s;position:relative;padding:14px 16px 14px 58px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
+  ol.steps li::before{content:counter(s);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:8px;background:var(--accent);color:#04120e;font-weight:750;display:grid;place-items:center;font-family:var(--mono)}
+  ol.steps b{color:#fff}
+  /* hardware map */
+  .move{background:linear-gradient(180deg,#20252e,#14181e);border:1px solid var(--line);border-radius:20px;padding:20px;max-width:560px;margin:14px auto}
+  .move .row{display:flex;gap:7px;justify-content:center;margin:8px 0}
+  .kn{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#2c333f,#0d1014);border:1px solid #333b47}
+  .scrbar{height:52px;border-radius:8px;background:var(--scr);border:1px solid #123;display:grid;place-items:center;color:var(--scrink);font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;flex:1}
+  .btnrow{display:flex;gap:6px;justify-content:center;margin:10px 0}
+  .mb{flex:1;height:16px;border-radius:5px;background:#232833;border:1px solid #333b47;font-size:.55rem;color:var(--faint);display:grid;place-items:center}
+  .pads{display:flex;gap:16px;justify-content:center;margin-top:12px}
+  .pg{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+  .pad{width:38px;height:26px;border-radius:6px;border:1px solid rgba(255,255,255,.12);opacity:.92}
+  .cap{color:var(--faint);font-size:.72rem;text-align:center;margin-top:6px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:16px;font-size:.8rem;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  /* screen shots */
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin:18px 0}
+  .shot figcaption{color:var(--dim);font-size:.82rem;margin-top:8px;text-align:center}
+  .screen{width:100%;height:auto;display:block;background:#081210;border-radius:10px;border:1px solid #14312a;box-shadow:0 0 40px rgba(80,255,210,.06) inset}
+  .fx-fam{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .fx-fam .card h3 .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;vertical-align:middle}
+  .muted{color:var(--faint)}
+  .note{background:linear-gradient(180deg,#141b2a,#101521);border:1px solid #24304a;border-left:3px solid var(--accent2);border-radius:10px;padding:12px 16px;margin:16px 0;font-size:.92rem;color:var(--dim)}
+  footer{border-top:1px solid var(--line);padding:34px 0;color:var(--faint);font-size:.85rem}
+  .thin td:first-child{font-weight:600}
+  @media(max-width:820px){
+    .wrap{grid-template-columns:1fr}
+    nav{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:2px;padding:14px}
+    nav .brand,nav .tag{width:100%}
+    nav a{border-left:none;padding:5px 9px}
+    nav a.sub{display:none}
+    .g2,.g3{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <div class="brand"><b>Loop</b>Box</div>
+  <div class="tag">Manual</div>
+  <a href="#top">Overview</a>
+  <a href="#concept">The idea</a>
+  <a href="#quickstart">Quickstart</a>
+  <a href="#layout">Hardware map</a>
+  <a href="#screen">The screen</a>
+  <a href="#loops">Loops &amp; playheads</a>
+  <a href="#pages" class="sub">The four loop pages</a>
+  <a href="#punch">Punch-in FX</a>
+  <a href="#lfo" class="sub">Per-effect LFO</a>
+  <a href="#seq" class="sub">FX sequencer</a>
+  <a href="#sends">Sends &amp; reverbs</a>
+  <a href="#perform">Perform &amp; master</a>
+  <a href="#tape" class="sub">Input tape</a>
+  <a href="#sessions">Sessions</a>
+  <a href="#cheat">Cheat sheet</a>
+  <a href="#credits">Credits</a>
+</nav>
+
+<main>
+<section class="hero" id="top">
+  <div class="eyebrow">16-track stereo tape looper · Ableton Move</div>
+  <h1>LoopBox</h1>
+  <p class="sub">A looping instrument for ambient and experimental music. Sixteen free-running tape loops, four playheads each, a deep set of performance effects, and every gesture click-free.</p>
+  <div class="pills">
+    <span class="pill"><b>16</b> stereo loops</span>
+    <span class="pill"><b>4</b> playheads / loop</span>
+    <span class="pill"><b>16</b> punch-in FX</span>
+    <span class="pill"><b>29</b> send effects</span>
+    <span class="pill"><b>4</b> reverbs</span>
+    <span class="pill"><b>32</b> session slots</span>
+    <span class="pill">Schwung Overtake</span>
+  </div>
+  <p class="muted" style="margin-top:18px">Built for the <a href="https://github.com/charlesvestal/schwung">Schwung</a> framework on Ableton Move. Free &amp; open source: <a href="https://github.com/filliformes/loopbox-move">source on GitHub</a>.</p>
+</section>
+
+<section id="concept">
+  <div class="eyebrow">The idea</div>
+  <h2>A looper that plays like an instrument</h2>
+  <p class="lede">LoopBox turns Move's pads into sixteen independent tape loops that never have to agree on a length or a downbeat. You layer sound freely, then treat every loop as raw material: re-pitched, re-ordered, filtered, granulated, frozen, with the whole surface live under your hands.</p>
+  <div class="grid g3">
+    <div class="card"><h3>Free-running</h3><p>Each loop is its own tape. Record one at 3 seconds and another at 40, in different keys, at different speeds. Nothing is quantized to a grid unless you ask.</p></div>
+    <div class="card"><h3>Everything performs</h3><p>Speed, pitch, filter, grain, reverb sends, playheads: all live per loop. Sixteen momentary punch-in effects sit on the right pads, pressure-sensitive and stackable.</p></div>
+    <div class="card"><h3>Click-free</h3><p>Every jump, mute, overdub and knob move is crossfaded or smoothed. You can be violent with it and it stays musical.</p></div>
+  </div>
+  <div class="note">LoopBox draws its screen and widgets with Schwung's own param-page renderer, so it looks and behaves like a native Move instrument: round knobs, notched enum squares, animated buttons, header and footer.</div>
+</section>
+
+<section id="quickstart">
+  <div class="eyebrow">Quickstart</div>
+  <h2>Your first loop in a minute</h2>
+  <ol class="steps">
+    <li><b>Open LoopBox</b> from the Overtake / Tools list in Schwung. The left 4×4 pads are your loops; the right 4×4 are punch-in effects.</li>
+    <li><b>Record.</b> Tap an empty left pad to start recording, tap again to close the loop and play. It loops instantly.</li>
+    <li><b>Layer.</b> Tap other empty pads and record more loops on top. They run independently: no need to match lengths.</li>
+    <li><b>Shape it.</b> Press a <b>step button</b> to select a loop and see its waveform. Turn the eight knobs to sweep Filter, Pitch, Scatter, Seed and more across its four pages (<kbd>Up</kbd>/<kbd>Down</kbd> change page).</li>
+    <li><b>Punch an effect.</b> Hold a right pad: Haze, Freeze, Chop: over the whole mix. Press harder for more. <kbd>Shift</kbd>+pad latches it hands-free.</li>
+    <li><b>Send to a reverb.</b> On loop page 1, turn <b>Send A</b> up; open <b>Send FX</b> (track button 3) and choose <b>Veil</b> or <b>Space</b>. Then <b>Save</b> it all to a session with the record button.</li>
+  </ol>
+  <p class="muted">Full-exit is <kbd>Shift</kbd>+<kbd>Back</kbd>. A plain <kbd>Back</kbd> only suspends, keeping your loops in memory.</p>
+</section>
+
+<section id="layout">
+  <div class="eyebrow">Hardware map</div>
+  <h2>Where everything lives</h2>
+  <div class="move">
+    <div class="row">
+      <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
+      <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
+    </div>
+    <div class="cap">8 knobs: the page on screen (loop params · menu · punch effect)</div>
+    <div class="row"><div class="scrbar">128 × 64 SCREEN</div></div>
+    <div class="btnrow">
+      <div class="mb">1&nbsp;Input</div><div class="mb">2&nbsp;Perform</div><div class="mb">3&nbsp;Send&nbsp;FX</div><div class="mb">4&nbsp;Settings</div>
+    </div>
+    <div class="cap">track buttons: menus · <b>Capture</b>=Input Tape · <b>Record</b>=Sessions · <b>✕</b>=FX Sequencer</div>
+    <div class="pads">
+      <div>
+        <div class="pg" id="lpads"></div>
+        <div class="cap">LEFT: 16 loops</div>
+      </div>
+      <div>
+        <div class="pg" id="rpads"></div>
+        <div class="cap">RIGHT: 16 punch FX</div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--blue)"></i>Loops</span>
+      <span><i class="sw" style="background:var(--pink)"></i>Grains</span>
+      <span><i class="sw" style="background:var(--purple)"></i>Pitch</span>
+      <span><i class="sw" style="background:var(--yellow)"></i>Time</span>
+      <span><i class="sw" style="background:var(--red)"></i>Palette FX</span>
+    </div>
+  </div>
+  <div class="grid g2" style="margin-top:22px">
+    <div class="card k"><h3>Loop pads (left)</h3><p>Tap to record / play / pause. Double-tap to overdub. Hold to clear. Colour shows state, tinted by playback speed.</p></div>
+    <div class="card k"><h3>Punch pads (right)</h3><p>Hold to apply a momentary effect on the master. Coloured by family. Up to five stack in series; pressure adds intensity.</p></div>
+    <div class="card k"><h3>Steps + arrows</h3><p>A step selects a loop and shows its waveform. <kbd>Up</kbd>/<kbd>Down</kbd> move between its four pages. <kbd>◀ ▶</kbd> are the tape brake / wind.</p></div>
+    <div class="card k"><h3>Jog wheel</h3><p>Scrubs the selected loop like tape: audibly, even when paused. On the Playheads page it moves the touched head.</p></div>
+  </div>
+</section>
+
+<section id="screen">
+  <div class="eyebrow">The screen</div>
+  <h2>What you see</h2>
+  <p class="lede">Three views. A touched knob takes over the header with the parameter's full name and value; the views fall back to the overview after ten seconds.</p>
+  <div class="shots" id="shots"></div>
+</section>
+
+<section id="loops">
+  <div class="eyebrow">Loops &amp; playheads</div>
+  <h2>Sixteen tapes, four heads each</h2>
+  <p>Each loop records up to 45 seconds of stereo audio and plays back on its own clock. Three overdub modes shape how layers build: <b>Replace</b>, <b>Multiply</b> (endless decayed layering), and <b>Disintegration</b> (the loop's own effects re-bake each pass, so it slowly falls apart).</p>
+  <p>Every loop is read by up to <b>four playheads at once</b>, each with a mode: <b>Off · Fwd · Bwd · Ping</b>: and its own speed from 0.25× to 4×. One recording becomes a canon, a drone, or a shifting cloud. Heads sum with equal-power normalisation so stacking never clips, and any head that jumps crossfades.</p>
+  <h3 id="pages">The four loop pages</h3>
+  <p class="muted">Select a loop with a step, then <kbd>Up</kbd>/<kbd>Down</kbd> to move between pages. Speed re-pitches like tape (pitch + tempo together); Pitch shifts independently, leaving tempo alone.</p>
+  <div class="scroll"><table>
+    <tr><th>Page</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th></tr>
+    <tr><td>P1 · Loop</td><td>Speed</td><td>Filter</td><td>Pan</td><td>Volume</td><td>Start</td><td>End</td><td>Reverse</td><td>Send A</td></tr>
+    <tr><td>P2 · Texture</td><td>Pitch</td><td>Reso</td><td>Sat</td><td>Comp</td><td>Wow/Flut</td><td>Scatter</td><td>Seed</td><td>Send B</td></tr>
+    <tr><td>P3 · Tone</td><td>Bass</td><td>MidF</td><td>MidGain</td><td>Treble</td><td>Tilt</td><td>Attack</td><td>Decay</td><td>Heads ▸</td></tr>
+    <tr><td>P4 · Heads</td><td>H1 mode</td><td>H1 spd</td><td>H2 mode</td><td>H2 spd</td><td>H3 mode</td><td>H3 spd</td><td>H4 mode</td><td>H4 spd</td></tr>
+  </table></div>
+  <div class="grid g3">
+    <div class="card"><h3>Seed</h3><p>A seeded re-order of the loop's slices (2/4/8/16, some reversed). The knob <em>is</em> the seed: every position is a different, repeatable mangle. Click-free.</p></div>
+    <div class="card"><h3>Scatter</h3><p>Stochastic slice jumps with crossfades: from gentle stutter to full shuffle.</p></div>
+    <div class="card"><h3>Filter + Reso</h3><p>A DJ-style filter: low-pass left of centre, high-pass right, with resonance. Smoothed, so sweeps never step.</p></div>
+  </div>
+</section>
+
+<section id="punch">
+  <div class="eyebrow">Punch-in FX</div>
+  <h2>The right pads: sixteen momentary effects</h2>
+  <p class="lede">Hold a pad to apply an effect to the whole mix, reading a rolling 2-second capture of the master. Up to five stack in series, each with four parameters on knobs 5–8, and pad pressure drives a per-effect expression shown in the footer.</p>
+  <div class="fx-fam">
+    <div class="card"><h3><span class="dot" style="background:var(--blue)"></span>Loops</h3><p><b>Loop12 · Loop16 · LoopSh · Chop</b>. Beat-locked stutters. Chop repeats the last transient on one of 32 rhythmic patterns drawn from Signal. Pressure subdivides.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--pink)"></span>Grains</h3><p><b>Haze · Mosaic · Smear · Strum</b>. Granular clouds: from a shimmering haze to a grid re-sequencer to an arpeggiated cascade. Pressure adds density.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--purple)"></span>Pitch</h3><p><b>Oct+ · Oct− · Glide · Shimmer</b>. Delay-line pitch shifts and a band-limited feedback shimmer that climbs an octave per pass. Pressure pushes regen/glide.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--yellow)"></span>Time</h3><p><b>Stretch · Freeze · Reverse · PalFX</b>. Overlap-add stretch and freeze (with a subtle doubler for width), reversed slices, and one whole Palette effect as a punch.</p></div>
+  </div>
+  <h3 id="lfo">A per-effect LFO on every pad</h3>
+  <p>While a pad is held, <b>knobs 1–4</b> are its own LFO: <b>Dest</b> (which of the four fx params to modulate), <b>Shape</b>, <b>Rate</b> (0.05–20 Hz) and <b>Depth</b>. Eight shapes: sine, triangle, saw, ramp, square, pulse, sample-and-hold, and smoothed random: for anything from a slow drift to chaotic wobble. Knobs 5–8 stay the effect's parameters.</p>
+  <div class="note"><kbd>Shift</kbd>+pad latches an effect hands-free. <kbd>Shift</kbd> while already holding latches it exactly as it is, pressure frozen. <kbd>Undo</kbd>+pad resets that pad to its defaults (the LED flashes to confirm).</div>
+  <h3 id="seq">FX sequencer: the ✕ button</h3>
+  <p>One shared 16-step pattern of punch effects, modelled on the Polyend MESS. <b>Tap ✕</b> to run or stop; <b>hold ✕</b> to see the pattern on the step buttons (orange = a step, dim = a held extension, white = the playhead). <b>✕ + pad(s) + step</b> writes up to five effects into a step, locking their knobs and pressure. Per-step play-chance, gate, swing, direction and length live on the FX Seq page, and the pattern saves with the session.</p>
+</section>
+
+<section id="sends">
+  <div class="eyebrow">Sends &amp; reverbs</div>
+  <h2>Two Palette buses, four reverbs</h2>
+  <p class="lede">Each loop has two sends (A on page 1, B on page 2) into a pair of shared effect buses: the Palette engine: with 29 effects to choose from (Send FX menu, track button 3). Four of them are proper reverbs, three ported from the standalone instruments they were built for.</p>
+  <div class="scroll"><table>
+    <tr><th>Reverb</th><th>Tank</th><th>Amount</th><th>Macro</th><th>Drift</th></tr>
+    <tr><td>Plate</td><td>Dattorro plate</td><td>decay</td><td>pre-delay</td><td>damping</td></tr>
+    <tr><td>Quartz</td><td>8-line Hadamard FDN, dual-band damping</td><td>room → hall</td><td>dark → bright</td><td>still → swimming</td></tr>
+    <tr><td>Prism</td><td>same tank, per-band decay</td><td>decay</td><td>lows ring ⇄ highs shimmer</td><td>crossover + movement</td></tr>
+    <tr><td>Veil</td><td>Householder FDN, modulated diffusers</td><td>size + tail</td><td>dark → bright</td><td>movement + colour</td></tr>
+  </table></div>
+  <p class="muted">Quartz and Prism come from <a href="https://github.com/filliformes/res">Res</a> and <a href="https://github.com/filliformes/essaim">Essaim</a>, standing in for Ableton's <code>abl.dsp.quartz~</code> and <code>abl.dsp.prism~</code>. Veil is <a href="https://github.com/filliformes/Phasma">Phasma</a>'s lush tank. The other 22 Palette effects span drive, modulation, granular and lo-fi textures.</p>
+</section>
+
+<section id="perform">
+  <div class="eyebrow">Perform &amp; master</div>
+  <h2>The master is a performance surface too</h2>
+  <p>The <b>Perform</b> menu (track button 2) has two pages. Page 1 is the Stumble stochastic glitcher plus Jump and Scan. Page 2 is a master processing block:</p>
+  <div class="grid g2">
+    <div class="card"><h3>Master filter</h3><p>A low-pass with twelve analog characters ported from Fizzik: Clean, SEM, MS-20, Steiner, four ladders, Prophet, Oberheim, Diode/303, K35, Vintage. Cutoff and resonance are smoothed, so sweeps never step. Self-oscillates on the ladder voicings.</p></div>
+    <div class="card"><h3>Master Clock</h3><p>A Chase&nbsp;Bliss Mood-style pitch/rate warp with sample-rate crush. <b>Music</b> mode snaps to wide intervals (octaves, fifths, thirds); <b>Free</b> slides continuously. Place it pre- or post-punch.</p></div>
+    <div class="card"><h3>Ducking pump</h3><p>K7–K8: a tempo-synced sidechain pump. It ducks on every beat division and breathes back up: from a gentle swell to a hard rhythmic gate.</p></div>
+    <div class="card"><h3>Tape transport</h3><p>The <kbd>◀ ▶</kbd> arrows brake the whole master to a stop or wind it up to a tone, then ease back to speed on release. Fully organic.</p></div>
+  </div>
+  <h3>Output character (Settings page 1)</h3>
+  <p>An end-of-chain colour section: a <b>character EQ</b> modelling ten hardware units, a <b>bus glue compressor</b>, and an <b>analog tape limiter</b>.</p>
+  <div class="scroll"><table class="thin">
+    <tr><th>Character</th><th>Voice</th></tr>
+    <tr><td>Studer</td><td>A800 tape: head bump low, airy top, soft saturation</td></tr>
+    <tr><td>Neve</td><td>1073: warm lows, silky high shelf</td></tr>
+    <tr><td>SSL</td><td>bus: tight lows, present mids</td></tr>
+    <tr><td>API</td><td>punchy forward mids, fast</td></tr>
+    <tr><td>SP12</td><td>SP-1200: 12-bit crunch, rolled top</td></tr>
+    <tr><td>MPC</td><td>MPC60: fat, warm 12-bit</td></tr>
+    <tr><td>Emu</td><td>SP-style: dark, gritty converter</td></tr>
+    <tr><td>Ampex</td><td>ATR tape: fat, saturated</td></tr>
+    <tr><td>Juno</td><td>chorus-console: bright, glassy</td></tr>
+    <tr><td>Console</td><td>neutral glue colour</td></tr>
+  </table></div>
+  <p class="muted">Settings page 2 holds arm threshold, overdub mode, root note, MIDI, and the punch-FX stereo width (mono → wide, per effect).</p>
+  <h3 id="tape">Input tape (Capture button)</h3>
+  <p>Everything you record passes through a tape input stage: 13 machine styles (including a true <b>Tapeless</b> bypass), drive, wow, flutter, HF rolloff, low cut, hiss and <b>Generations</b> (the sound of repeated dubbing). It shapes the sound as it goes onto tape.</p>
+</section>
+
+<section id="sessions">
+  <div class="eyebrow">Sessions</div>
+  <h2>Save the whole rig</h2>
+  <p>Thirty-two slots on the record button next to Capture. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. Saving over a used slot asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopbox-sessions/</code> and survive reinstalls.</p>
+</section>
+
+<section id="cheat">
+  <div class="eyebrow">Cheat sheet</div>
+  <h2>Every gesture</h2>
+  <div class="scroll"><table>
+    <tr><th>Gesture</th><th>Action</th></tr>
+    <tr><td>Tap loop pad</td><td>record → play ⇄ pause</td></tr>
+    <tr><td>Double-tap</td><td>overdub (tap again to stop)</td></tr>
+    <tr><td>Hold loop pad</td><td>clear the loop (Undo restores)</td></tr>
+    <tr><td>Shift + pad</td><td>cycle playback speed ½× · 1× · 2×</td></tr>
+    <tr><td>Mute + pad</td><td>quick mute (stays in phase)</td></tr>
+    <tr><td>Copy + pad, pad</td><td>clone a loop</td></tr>
+    <tr><td>Loop + pad</td><td>loop length 1× · ½× · ¼× · ⅛×</td></tr>
+    <tr><td>Shift + Record (+ jog)</td><td>threshold-arm record (set threshold)</td></tr>
+    <tr><td>Right pad</td><td>punch effect · Shift = latch · Undo = reset</td></tr>
+    <tr><td>Step</td><td>select loop → waveform · same step = next page</td></tr>
+    <tr><td>Up / Down</td><td>loop page, or menu page</td></tr>
+    <tr><td>Jog</td><td>scrub loop · P4: move touched head</td></tr>
+    <tr><td>Tracks 1–4</td><td>Input · Perform · Send FX · Settings</td></tr>
+    <tr><td>Capture / Record</td><td>Input Tape / Sessions</td></tr>
+    <tr><td>✕ (Delete)</td><td>tap: run FX seq · hold: pattern view</td></tr>
+    <tr><td>◀ / ▶</td><td>tape brake / wind (held)</td></tr>
+    <tr><td>Undo</td><td>revert last overdub, else last clear</td></tr>
+    <tr><td>Back / Shift+Back</td><td>close menu, then suspend / full exit</td></tr>
+  </table></div>
+</section>
+
+<section id="credits">
+  <div class="eyebrow">Credits</div>
+  <h2>Standing on open work</h2>
+  <p>LoopBox is free and open source under GPL-3.0. It builds on <a href="https://github.com/charlesvestal/schwung">Schwung</a>, Mutable Instruments <a href="https://github.com/pichenettes/eurorack">Clouds &amp; Warps</a>, <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">Signalsmith Stretch</a>, <a href="https://www.airwindows.com">Airwindows</a>, Jon Dattorro's plate, and the sibling instruments Res, Essaim, Phasma, Palette, Magnéto and Signal. Full list in the <a href="https://github.com/filliformes/loopbox-move#credits">repository</a>.</p>
+  <footer>LoopBox: a dream ambient &amp; experimental looper for Ableton Move. Made by filliformes. · <a href="https://github.com/filliformes/loopbox-move">GitHub</a></footer>
+</section>
+</main>
+</div>
+
+<script>
+/* pad grids in the hardware map */
+(function(){
+  const L=document.getElementById('lpads'), R=document.getElementById('rpads');
+  const loop=['#2a63a8','#2f7bcf','#4bd47a','#3aa85f']; // just tints for loop states
+  const fam=['var(--blue)','var(--blue)','var(--blue)','var(--blue)',
+             'var(--pink)','var(--pink)','var(--pink)','var(--pink)',
+             'var(--purple)','var(--purple)','var(--purple)','var(--purple)',
+             'var(--yellow)','var(--yellow)','var(--yellow)','var(--red)'];
+  const order=[12,13,14,15, 8,9,10,11, 4,5,6,7, 0,1,2,3];   /* top row first: pad 16 (PalFX) sits top-right, like the device */
+  for(const idx of order){const d=document.createElement('div');d.className='pad';
+    d.style.background='linear-gradient(180deg,#2b4c74,#20364f)';d.style.opacity=(0.5+0.5*((idx*7)%16)/16);L.appendChild(d);}
+  for(const idx of order){const d=document.createElement('div');d.className='pad';d.style.background=fam[idx];d.style.opacity=.85;R.appendChild(d);}
+})();
+
+/* faithful 128x64 screen reproductions, drawn as scaled SVG (viewBox 0 0 128 64) */
+const S = {
+  ink:'#8effd8', dim:'#3f8f76', bg:'#081210'
+};
+function svg(inner){return '<svg class="screen" viewBox="0 0 128 64" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="128" height="64" fill="'+S.bg+'"/>'+inner+'</svg>';}
+function txt(x,y,t,c,sz){return '<text x="'+x+'" y="'+y+'" fill="'+(c||S.ink)+'" font-family="monospace" font-size="'+(sz||6)+'" letter-spacing="-.3">'+t+'</text>';}
+function hdr(left,right,inv){
+  let o = inv? '<rect x="0" y="0" width="128" height="8" fill="'+S.ink+'"/>' : '';
+  o += txt(2,6,left, inv?S.bg:S.ink,5);
+  if(right) o += '<text x="126" y="6" text-anchor="end" fill="'+(inv?S.bg:S.ink)+'" font-family="monospace" font-size="5">'+right+'</text>';
+  return o;
+}
+/* an arc-knob glyph at cell */
+function knob(cx,cy,val){
+  const r=6, a0=225, sweep=270, ang=(a0+val*sweep)*Math.PI/180;
+  // arc as polyline
+  let pts='';
+  for(let i=0;i<=16;i++){const a=(230+ (260*i/16))*Math.PI/180; pts+=(cx+r*Math.sin(a)).toFixed(1)+','+(cy-r*Math.cos(a)).toFixed(1)+' ';}
+  const px=cx+r*0.66*Math.sin(ang), py=cy-r*0.66*Math.cos(ang);
+  return '<polyline points="'+pts+'" fill="none" stroke="'+S.ink+'" stroke-width="0.8"/>'+
+         '<line x1="'+cx+'" y1="'+cy+'" x2="'+px.toFixed(1)+'" y2="'+py.toFixed(1)+'" stroke="'+S.ink+'" stroke-width="0.8"/>';
+}
+function enumsq(cx,cy,t){
+  const w=Math.max(14,t.length*4+6), x=cx-w/2, y=cy-5;
+  return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="11" rx="1.5" fill="none" stroke="'+S.ink+'" stroke-width="0.8"/>'+
+         '<text x="'+cx+'" y="'+(cy+2)+'" text-anchor="middle" fill="'+S.ink+'" font-family="monospace" font-size="5">'+t+'</text>';
+}
+function label(cx,y,t){return '<text x="'+cx+'" y="'+y+'" text-anchor="middle" fill="'+S.dim+'" font-family="monospace" font-size="4.5">'+t+'</text>';}
+/* a full 8-knob page */
+function knobPage(left,right,labels,vals,kinds){
+  let o=hdr(left,right,false);
+  const cols=[16,48,80,112], rows=[20,44], lrows=[30,54];
+  for(let i=0;i<8;i++){const cx=cols[i%4], row=i<4?0:1, cy=rows[row];
+    if(kinds&&kinds[i]==='e') o+=enumsq(cx,cy,vals[i]); else o+=knob(cx,cy,vals[i]);
+    o+=label(cx,lrows[row],labels[i]);
+  }
+  return svg(o);
+}
+const shots=[
+ {cap:'Loop page 1: the eight knobs of the selected loop.',
+  svg:knobPage('TRACK 1 PLAY','LOOP',['SPD','FIL','PAN','VOL','SRT','END','REV','SNDA'],[0.6,0.3,0.5,0.8,0.0,1.0,0,0.4],['k','k','k','k','k','k','e','k'])},
+ {cap:'Punch effect held: LFO on knobs 1–4, effect params on 5–8.',
+  svg:knobPage('HAZE','PUNCH',['DEST','SHP','RATE','DPT','SIZE','PIT','DENS','MIX'],['P3','Sine',0.4,0.5,0.4,0.5,0.6,1.0],['e','e','k','k','k','k','k','k'])},
+ {cap:'Waveform view: min/max envelope with the active playheads.',
+  svg:(function(){let o=hdr('TRACK 3 PLAY 12S','F-BP',false);
+    o+='<line x1="0" y1="9" x2="128" y2="9" stroke="'+S.dim+'" stroke-width="0.5"/>';
+    let up='',dn='';for(let x=0;x<128;x+=2){const e=Math.abs(Math.sin(x*0.14))*Math.abs(Math.cos(x*0.05))*20+1;up+='M'+x+','+(34-e)+'V'+(34+e)+' ';}
+    o+='<path d="'+up+'" stroke="'+S.ink+'" stroke-width="0.7" fill="none" opacity="0.9"/>';
+    [30,72,104].forEach((x,i)=>{o+='<line x1="'+x+'" y1="11" x2="'+x+'" y2="56" stroke="'+S.ink+'" stroke-width="0.6" stroke-dasharray="2 2"/>'+txt(x-1,62,(i+1),S.ink,5);});
+    return svg(o);})()},
+ {cap:'Sessions: 32 slots, named by date, saved with your audio.',
+  svg:(function(){let o=hdr('SESSIONS','SESSION 5',false);
+    o+='<text x="126" y="14" text-anchor="end" fill="'+S.dim+'" font-family="monospace" font-size="4.5">SEP 15 21:30</text>';
+    o+=knob(16,30,0.15)+label(16,42,'SLOT');
+    o+='<rect x="40" y="24" width="24" height="12" rx="2" fill="none" stroke="'+S.ink+'" stroke-width="0.8"/>'+txt(45,32,'SAVE',S.ink,5);
+    o+='<rect x="80" y="24" width="24" height="12" rx="2" fill="none" stroke="'+S.ink+'" stroke-width="0.8"/>'+txt(85,32,'LOAD',S.ink,5);
+    return svg(o);})()},
+ {cap:'Perform page 2: master filter, Mood clock and ducking pump.',
+  svg:knobPage('LOOPBOX','PERFORM',['CUT','RESO','FCHR','CLK','CLMD','CLAT','PUMP','PMRT'],[0.7,0.35,'MS-20',0.5,'Music','Pre',0.3,0.4],['k','k','e','k','e','e','k','k'])},
+ {cap:'Overview: the 16-track strip, level and CPU.',
+  svg:(function(){let o=hdr('TRACK 1 PLAY','CPU 34%',false);
+    o+='<line x1="0" y1="9" x2="128" y2="9" stroke="'+S.dim+'" stroke-width="0.5"/>';
+    for(let i=0;i<16;i++){const x=i*8,h=[1,6,6,3][(i*3)%4]||6;o+='<rect x="'+x+'" y="'+(11)+'" width="6" height="'+h+'" fill="'+S.ink+'"/>';}
+    o+='<rect x="0" y="19" width="6" height="1" fill="'+S.ink+'"/>';
+    o+='<line x1="0" y1="23" x2="128" y2="23" stroke="'+S.dim+'" stroke-width="0.5"/>';
+    o+=txt(2,31,'LOOP 8S',S.ink,5)+'<text x="126" y="31" text-anchor="end" fill="'+S.ink+'" font-family="monospace" font-size="5">IN 0.42</text>';
+    o+=txt(2,60,'HOLD PAD = CLEAR   UNDO',S.dim,4.5);
+    return svg(o);})()},
+];
+(function(){const c=document.getElementById('shots');
+  shots.forEach(s=>{const f=document.createElement('figure');f.className='shot';f.style.margin='0';
+    f.innerHTML=s.svg+'<figcaption>'+s.cap+'</figcaption>';c.appendChild(f);});})();
+</script>
+</body>
+</html>

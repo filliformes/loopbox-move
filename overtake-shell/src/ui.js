@@ -99,7 +99,10 @@ const PUNCH_PARAMS = [ /* per-effect labels for knobs 5,6,7,8 */
 const PUNCH_PRESS = ['subdivide','subdivide','subdivide','rate x2', 'density','grid x2','density','faster+wider',
                      'mix','mix','glide','regen',                     'freeze','freeze','shorter','amount'];
 /* PFX_NAMES (declared with the Send FX menu below) also names knob 5 of the PalFX pad */
-const NUM_CHOP_PAT = 8;
+const NUM_CHOP_PAT = 32;
+const LFO_DEST = ['Off', 'P1', 'P2', 'P3', 'P4'];
+const LFO_SHAPE = ['Sine', 'Tri', 'Saw', 'Ramp', 'Squ', 'Puls', 'S&H', 'Smth'];
+const PUNCH_LFO_LBL = ['Dest', 'Shape', 'Rate', 'Depth'];
 /* knob cells that are enums rather than 0..1 floats: [pad, knob] -> {n, disp, toVal, fromVal} */
 function punchEnum(i, j) {
     if (i === 15 && j === 0) return { n: PFX_NAMES.length, disp: ix => PFX_NAMES[ix], toVal: ix => ix / (PFX_NAMES.length - 1), fromVal: v => Math.max(0, Math.min(PFX_NAMES.length - 1, Math.round(v * (PFX_NAMES.length - 1)))) };
@@ -110,6 +113,7 @@ function punchDisp(i, j, v) { const e = punchEnum(i, j); return e ? e.disp(e.fro
 let punchMode = false, punchActive = -1;
 const heldPunch = [];  /* currently-held punch pads (up to 4, in press order) */
 const punchLatched = new Array(NV).fill(false);  /* Shift+pad = latch on (hands-free) */
+const padFlash = new Array(NV).fill(0);          /* right-pad LED flash-until (ms) for undo-reset confirmation */
 const padPress = new Array(NV).fill(0), pressMax = new Array(NV).fill(0);   /* live pad pressure, peak during the hold */
 const pressFrozen = new Array(NV).fill(false);   /* Shift while holding: latch WITH the pressure of that moment */
 const physHeld = [];   /* punch pads currently pressed — only THESE capture knobs 5-8 */
@@ -124,8 +128,17 @@ punchVals[11] = [0.5, 0.5, 0.5, 1.0];   /* Shimmer: regen, +1 octave, mid tone *
 punchVals[12] = [0.5, 0.5, 0.3, 1.0];   /* Stretch: mid stretch, small grain */
 punchVals[13] = [1.0, 0.5, 0.3, 1.0];   /* Freeze:  full freeze */
 punchVals[3]  = [0.5, 0.0625, 1.0, 1.0]; /* Chop:   1/4 grid, pattern 1 */
-punchVals[15] = [17 / 25, 0.5, 0.5, 0.0]; /* PalFX:  Space reverb, half amount */
+punchVals[15] = [1.0, 0.5, 0.5, 0.0];   /* PalFX:  Veil reverb, half amount */
+punchVals[3][0] = 0.7;                                 /* Chop: brisker default rate */
 const PUNCH_DEFAULTS = punchVals.map(a => a.slice());   /* Undo + pad restores these */
+const punchLfo = []; for (let i = 0; i < 16; i++) punchLfo.push([0, 0, 0.35, 0.35]);   /* [dest, shape, rate, depth] */
+const PUNCH_LFO_DEFAULTS = punchLfo.map(a => a.slice());
+function punchLfoEnum(j) {
+    if (j === 0) return { n: LFO_DEST.length, disp: ix => LFO_DEST[ix], toVal: ix => ix / (LFO_DEST.length - 1), fromVal: v => Math.max(0, Math.min(LFO_DEST.length - 1, Math.round(v * (LFO_DEST.length - 1)))) };
+    if (j === 1) return { n: LFO_SHAPE.length, disp: ix => LFO_SHAPE[ix], toVal: ix => ix / (LFO_SHAPE.length - 1), fromVal: v => Math.max(0, Math.min(LFO_SHAPE.length - 1, Math.round(v * (LFO_SHAPE.length - 1)))) };
+    return null;
+}
+function punchLfoDisp(j, v) { const e = punchLfoEnum(j); return e ? e.disp(e.fromVal(v)) : Number(v).toFixed(2); }
 
 /* ---- Track-button menus (MoveRow1..4) ---- */
 const ROW_CCS = [MoveRow1, MoveRow2, MoveRow3, MoveRow4];   /* Track buttons 1..4 */
@@ -134,6 +147,7 @@ const CHANCE_NAMES = ['Always','10%','20%','30%','40%','50%','60%','70%','80%','
 const PFX_NAMES = ['Off','Drive','Sweeten','Fuzz','Howl','Fold','Swell','Doubler','Vibrato','Phaser','Tremolo','Pitch','Shift',
                    'Cascade','Reels','Collage','Reverse','Space','Bloom','Filter','Squash','Cassette','Broken','Interference','Halo','Plate','Quartz','Prism','Veil'];
 const PREAMP_NAMES = ['Tapeless','Clean','Cass1','Cass2','VHS1','VHS2','Reel15','Reel7','Reel3','4trk','Porta','Dub','Warp'];
+const MEQ_NAMES = ['Off','Studer','Neve','SSL','API','SP12','MPC','Emu','Ampex','Juno','Console'];
 const MENU_DEFS = [
     [ /* Track 1 — Input FX */
       { k:'inputMonitor', lo:0, hi:1, lbl:'Mon' },    { k:'preamp', opts:PREAMP_NAMES, lbl:'Style' },
@@ -147,15 +161,21 @@ const MENU_DEFS = [
       { k:'sendBType', opts:PFX_NAMES, lbl:'B Fx' }, { k:'sendBM1', lo:0, hi:1, lbl:'B Amt' },
       { k:'sendBM2', lo:0, hi:1, lbl:'B Mac' },  { k:'sendBDrift', lo:0, hi:1, lbl:'B Drf' },
     ],
-    [ /* Track 3 — Perform: Stumble master glitch + Dropout */
+    [ /* Track 3 — Perform: p1 Stumble/Dropout, p2 master filter + Mood clock + tremolo */
       { k:'stMix', lo:0, hi:1, lbl:'Stmb' }, { k:'stStep', lo:0, hi:1, lbl:'Step' },
       { k:'stOdds', lo:0, hi:1, lbl:'Odds' }, { k:'stSize', lo:0, hi:1, lbl:'Size' },
       { k:'stKind', opts:['Tumble','Stutter','Reverse','Tape','Gate','Crush'], lbl:'Kind' }, { k:'stReach', lo:0, hi:1, lbl:'Reach' },
       { k:'jump', trig:true, lbl:'Jump' }, { k:'scan', trig:true, lbl:'Scan' },
+      { k:'mfCut', lo:0, hi:1, lbl:'Cut' },  { k:'mfReso', lo:0, hi:1, lbl:'Reso' },
+      { k:'mfMode', opts:['Clean','SEM','MS-20','Steiner','Ladder4','Ladder2','Ladder1','Prophet','Oberheim','Diode','K35','Vintage'], lbl:'FChar' }, { k:'mClock', lo:0, hi:1, lbl:'Clock' },
+      { k:'mClockMode', opts:['Music','Free'], lbl:'ClkMd' }, { k:'mClockSpot', opts:['Pre','Post'], lbl:'ClkAt' },
+      { k:'perfTrem', lo:0, hi:1, lbl:'Pump' }, { k:'perfTremRate', lo:0, hi:1, lbl:'PmpRt' },
     ],
-    [ /* Track 4 — Settings */
+    [ /* Track 4 — Settings: p1 output & character, p2 behaviour + punch width */
       { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'globalSat', lo:0, hi:2, lbl:'gSat' },
-      { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 }, { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 },
+      { k:'masterEQ', opts:MEQ_NAMES, lbl:'Char' },   { k:'masterGlue', lo:0, hi:1, lbl:'Glue' },
+      { k:'tapeLimit', lo:0, hi:1, lbl:'Limit' },     { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 },
+      { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 }, { k:'punchWidth', lo:0, hi:1, lbl:'PWide' },
       { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },     { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' },
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },
     ],
@@ -253,7 +273,10 @@ let waveStr = '', headsStr = '';
 function showView(v) { view = v; viewUntil = now() + VIEW_MS; dirty = true; }
 const LOOP_MULTS = [1.0, 0.5, 0.25, 0.125];
 const loopMultIdx = new Array(NV).fill(0);
-let menu = -1, menuReload = false;
+let menu = -1, menuReload = false, menuPage = 0;
+const MENU_PAGED = { 1: true, 3: true };   /* Perform + Settings have a 2nd knob page */
+function curMenuDefs() { const d = MENU_DEFS[menu]; if (!d) return null; return MENU_PAGED[menu] ? d.slice(menuPage * 8, menuPage * 8 + 8) : d; }
+function menuPages() { const d = MENU_DEFS[menu]; return (d && MENU_PAGED[menu]) ? Math.ceil(d.length / 8) : 1; }
 const menuVals = [0,0,0,0,0,0,0,0];
 
 let knobVals = new Array(8).fill(0);
@@ -339,6 +362,7 @@ function paintAll(force) {
 }
 /* Open (or toggle off) a menu by index; 0-3 are the track buttons, 4=Tape, 5=Sessions */
 function openMenu(idx) {
+    menuPage = 0;
     if (menu === idx) menu = -1;
     else { menu = idx; menuReload = true; setMsg(MENU_NAMES[idx]); showView('knobs'); if (idx === 5) pollSessNames(); }
     paintTrackLEDs(); paintNav(); dirty = true;
@@ -383,7 +407,7 @@ function reloadKnobs() {
 
 /* ---- menu helpers ---- */
 function reloadMenu() {
-    const defs = MENU_DEFS[menu]; if (!defs) return;
+    const defs = curMenuDefs(); if (!defs) return;
     for (let i = 0; i < 8; i++) {
         const d = defs[i]; if (!d) { menuVals[i] = 0; continue; }
         if (d.local) { menuVals[i] = sessSlot; continue; }
@@ -408,7 +432,7 @@ function menuKnob(k, delta) {
         m.locks[0][j] = nv; sendStepPad(delStepHeld, 0); delUsed = true;
         lastKnob = k; lastKnobLbl = PUNCH_PARAMS[pad][j]; lastKnobVal = punchDisp(pad, j, nv); return;
     }
-    const d = MENU_DEFS[menu][k]; if (!d) return;
+    const d = curMenuDefs()[k]; if (!d) return;
     if (d.chance) {                   /* Chance: of the held step, else the default for new steps */
         const st = enumSteps(k, delta); if (st === 0) return;
         const idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(menuVals[k]) + st)); menuVals[k] = idx;
@@ -447,9 +471,9 @@ function menuKnob(k, delta) {
         menuVals[k] = nv; sp(d.k, String(nv)); lastKnobVal = String(nv);
     } else {
         if (menu === 6) delUsed = true;
-        const step = (d.hi - d.lo) * 0.02, c = (d.lo + d.hi) / 2;
-        let nv = c + Math.round((menuVals[k] + delta * step - c) / step) * step; nv = clampf(nv, d.lo, d.hi);
-        menuVals[k] = nv; sp(d.k, nv.toFixed(4)); lastKnobVal = nv.toFixed(2);
+        const step = d.step || (d.hi - d.lo) * 0.006;   /* fine + continuous: no stepping on sound controls */
+        const nv = clampf(menuVals[k] + delta * step, d.lo, d.hi);
+        menuVals[k] = nv; sp(d.k, nv.toFixed(4)); lastKnobVal = (d.hi - d.lo > 4) ? String(Math.round(nv)) : nv.toFixed(2);
     }
     lastKnob = k; lastKnobLbl = d.lbl;
 }
@@ -458,11 +482,12 @@ function paintTrackLEDs() { for (let i = 0; i < 4; i++) setButtonLED(ROW_CCS[i],
 /* capacitive knob touch (notes 0-7 = E1-E8): show the param it affects, without changing it */
 function handleKnobTouch(d1) {
     const k = d1; if (k < 0 || k > 7) return;
-    if (menu >= 0 && MENU_DEFS[menu]) {
-        const d = MENU_DEFS[menu][k]; if (!d) return; lastKnobLbl = d.lbl;
+    if (menu >= 0 && curMenuDefs()) {
+        const d = curMenuDefs()[k]; if (!d) return; lastKnobLbl = d.lbl;
         lastKnobVal = d.local ? String(sessSlot) : d.trig ? '(fire)' : (d.opts ? d.opts[Math.round(menuVals[k])] : (d.int ? String(Math.round(menuVals[k])) : Number(menuVals[k]).toFixed(2)));
-    } else if (punchMode && k >= 4 && punchActive >= 0) {
-        const j = k - 4; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, punchVals[punchActive][j]);
+    } else if (punchMode && punchActive >= 0) {
+        if (k < 4) { lastKnobLbl = PUNCH_LFO_LBL[k]; lastKnobVal = punchLfoDisp(k, punchLfo[punchActive][k]); }
+        else { const j = k - 4; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, punchVals[punchActive][j]); }
     } else if (menu < 0 && !punchMode) {
         const d = PAGES[page()][k]; if (!d) return; lastKnobLbl = d.lbl;
         lastKnobVal = knobInfo(d, k)[1];
@@ -960,6 +985,9 @@ const FULL_NAMES = {
     sessSlot: 'Session Slot', sessSave: 'Save Session', sessLoad: 'Load Session',
     fxseqRun: 'FX Seq Run', fxseqSpeed: 'Step Speed', fxseqLen: 'Pattern Length', fxseqChance: 'Play Chance',
     fxseqGate: 'Gate', fxseqSwing: 'Swing', fxseqDir: 'Direction', fxseqClear: 'Clear Pattern',
+    mfCut: 'Master Cut', mfReso: 'Master Reso', mfMode: 'Filter Mode', mClock: 'Master Clock',
+    mClockMode: 'Clock Mode', mClockSpot: 'Clock Spot', perfTrem: 'Pump Depth', perfTremRate: 'Pump Rate',
+    masterEQ: 'Character', masterGlue: 'Glue Comp', tapeLimit: 'Tape Limiter', punchWidth: 'Punch Width',
 };
 function fullName(d) { return (d && (FULL_NAMES[d.k] || d.lbl)) || ''; }
 /* The knob grid: loop page, menu, or (with a punch pad held) the held effect's
@@ -984,7 +1012,7 @@ function drawKnobView() {
     if (menu === 6)     { defs = MENU_DEFS[6]; title = 'FX Seq'; pageName = seqRun ? 'Running' : 'Stopped'; scope = 'm6';
                           footer = (delStepHeld >= 0) ? [[String(delStepHeld + 1), stepMirror[delStepHeld].n ? stepMirror[delStepHeld].pads.map(x => PUNCH_NAMES[x]).join('+') : 'empty']]
                                                       : [['X+Pad+Step', 'Write'], ['X', 'Run']]; }
-    else if (menu >= 0) { defs = MENU_DEFS[menu]; title = (menu === 5) ? 'Sessions' : 'LoopBox';
+    else if (menu >= 0) { defs = curMenuDefs(); title = (menu === 5) ? 'Sessions' : 'LoopBox';
                           pageName = (menu === 5) ? (sessCurrent > 0 ? 'Session ' + sessCurrent : 'New') : MENU_NAMES[menu]; scope = 'm' + menu;
                           footer = (menu === 5) ? [[String(sessSlot) + (sessSlot === sessCurrent ? '*' : ''), sessNames[sessSlot] ? prettySess(sessNames[sessSlot]) : 'empty'], ['Back', 'Exit']] : [['Back', 'Exit']]; }
     else if (inPunch)   { defs = null; title = 'Punch'; pageName = PUNCH_NAMES[punchActive]; scope = 'p' + punchActive;
@@ -995,6 +1023,7 @@ function drawKnobView() {
     let hdrL = title, hdrR = pageName, hdrInv = false;
     if (lastKnob >= 0) {
         if (inPunch && lastKnob >= 4) { hdrL = PUNCH_PARAMS[punchActive][lastKnob - 4]; hdrR = punchDisp(punchActive, lastKnob - 4, punchVals[punchActive][lastKnob - 4]); hdrInv = true; }
+        else if (inPunch && lastKnob >= 0) { hdrL = PUNCH_LFO_LBL[lastKnob]; hdrR = punchLfoDisp(lastKnob, punchLfo[punchActive][lastKnob]); hdrInv = true; }
         else if (defs && defs[lastKnob]) { hdrL = fullName(defs[lastKnob]); hdrR = knobInfo(defs[lastKnob], lastKnob)[1]; hdrInv = true; }
     }
     drawHeader(ctx, hdrL, hdrR, hdrInv);
@@ -1008,8 +1037,13 @@ function drawKnobView() {
         const lblY = row ? LBL1_Y : LBL0_Y;
         const touched = (i === lastKnob);
         if (inPunch) {
-            /* knobs 1-4 do nothing in punch mode: leave them empty, not misleading */
-            if (i < 4) continue;
+            if (i < 4) {                               /* knobs 1-4 = per-effect LFO */
+                const lv = punchLfo[punchActive][i], le = punchLfoEnum(i);
+                if (le) drawEnumSquare(ctx, kx, ky, le.disp(le.fromVal(lv)), 'pl' + punchActive + ':' + i, le.fromVal(lv));
+                else drawArcKnob(ctx, kx, ky, isFinite(lv) ? lv : 0);
+                drawLabelCell(ctx, cellX, CELL_W, lblY, labelForCell(PUNCH_LFO_LBL[i]), caps(punchLfoDisp(i, lv)), touched, touched);
+                continue;
+            }
             const j = i - 4, v = punchVals[punchActive][j], pe = punchEnum(punchActive, j);
             if (pe) drawEnumSquare(ctx, kx, ky, pe.disp(pe.fromVal(v)), 'p' + punchActive + ':' + i, pe.fromVal(v));
             else drawArcKnob(ctx, kx, ky, isFinite(v) ? v : 0);
@@ -1161,6 +1195,7 @@ globalThis.tick = function () {
     if (tickCount % 5 === 0) {                                   /* blink driver for armed / clone-src */
         blinkOn = !blinkOn;
         for (let i = 0; i < NV; i++) if (armedArr[i] || i === cloneSrc) setLED(LEFT_NOTES[i], padColor(i), true);
+        for (let i = 0; i < NV; i++) if (padFlash[i] && now() >= padFlash[i]) { padFlash[i] = 0; setLED(RIGHT_NOTES[i], rightColor(i), true); }
     }
     if (tickCount % 10 === 4) {                                  /* armed state from the DSP */
         const a = gp('armed');
@@ -1231,8 +1266,8 @@ globalThis.onMidiMessageInternal = function (data) {
             sp('scrub', String(dv));                                         /* scrub the tape */
             setMsg('scrub ' + (dv > 0 ? '>>' : '<<')); showView('wave'); return;
         }
-        if (d1 === MoveDown  && d2 > 0) { setPage(loopPage + 1); showView('knobs'); return; }   /* next loop page (shown) */
-        if (d1 === MoveUp    && d2 > 0) { setPage(loopPage - 1); showView('knobs'); return; }   /* prev loop page (shown) */
+        if (d1 === MoveDown  && d2 > 0) { if (menu >= 0 && MENU_PAGED[menu]) { menuPage = Math.min(menuPages() - 1, menuPage + 1); menuReload = true; dirty = true; return; } setPage(loopPage + 1); showView('knobs'); return; }
+        if (d1 === MoveUp    && d2 > 0) { if (menu >= 0 && MENU_PAGED[menu]) { menuPage = Math.max(0, menuPage - 1); menuReload = true; dirty = true; return; } setPage(loopPage - 1); showView('knobs'); return; }
         if (d1 === MoveUndo) {                                               /* Undo: last overdub, else last clear */
             if (d2 > 0) { undoHeld = true; undoUsed = false; setButtonLED(MoveUndo, WhiteLedBright, true); }
             else { undoHeld = false; setButtonLED(MoveUndo, WhiteLedDim, true); if (!undoUsed) doUndo(); }
@@ -1262,23 +1297,22 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         const k = d1 - MoveKnob1;
         if (k >= 0 && k < 8) {
-            if (menu >= 0 && MENU_DEFS[menu]) { menuKnob(k, decodeDelta(d2)); showView('knobs'); return; }
-            if (punchMode) {                       /* knobs 5-8 (above the right pads) control the held effect */
-                if (k >= 4 && punchActive >= 0) {
-                    const j = k - 4, pe = punchEnum(punchActive, j);
-                    let nv;
-                    if (pe) {                                              /* enum cell: one option per 4 detents */
-                        const st = enumSteps(k, decodeDelta(d2)); if (st === 0) return;
-                        const ix = Math.max(0, Math.min(pe.n - 1, pe.fromVal(punchVals[punchActive][j]) + st));
-                        nv = pe.toVal(ix);
-                    } else {
-                        nv = punchVals[punchActive][j] + decodeDelta(d2) * 0.02;
-                        nv = 0.5 + Math.round((nv - 0.5) / 0.02) * 0.02;   /* grid aligned to centre */
-                        nv = clampf(nv, 0, 1);
-                    }
+            if (menu >= 0 && curMenuDefs()) { menuKnob(k, decodeDelta(d2)); showView('knobs'); return; }
+            if (punchMode && punchActive >= 0) {
+                if (k < 4) {                                           /* knobs 1-4 = LFO dest/shape/rate/depth */
+                    const le = punchLfoEnum(k); let nv;
+                    if (le) { const st = enumSteps(k, decodeDelta(d2)); if (st === 0) return;
+                        nv = le.toVal(Math.max(0, Math.min(le.n - 1, le.fromVal(punchLfo[punchActive][k]) + st))); }
+                    else { nv = clampf(punchLfo[punchActive][k] + decodeDelta(d2) * 0.01, 0, 1); }
+                    punchLfo[punchActive][k] = nv; sp('pflfo', punchActive + ':' + k + ':' + nv.toFixed(4));
+                    lastKnob = k; lastKnobLbl = PUNCH_LFO_LBL[k]; lastKnobVal = punchLfoDisp(k, nv); showView('knobs');
+                } else {                                               /* knobs 5-8 = fx params (finer 0.01) */
+                    const j = k - 4, pe = punchEnum(punchActive, j); let nv;
+                    if (pe) { const st = enumSteps(k, decodeDelta(d2)); if (st === 0) return;
+                        nv = pe.toVal(Math.max(0, Math.min(pe.n - 1, pe.fromVal(punchVals[punchActive][j]) + st))); }
+                    else { nv = clampf(0.5 + Math.round((punchVals[punchActive][j] + decodeDelta(d2) * 0.01 - 0.5) / 0.01) * 0.01, 0, 1); }
                     punchVals[punchActive][j] = nv; sp('pfx', punchActive + ':' + j + ':' + nv.toFixed(4));
-                    lastKnob = k; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, nv);
-                    showView('knobs');
+                    lastKnob = k; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, nv); showView('knobs');
                 }
                 return;
             }
@@ -1290,10 +1324,9 @@ globalThis.onMidiMessageInternal = function (data) {
                 knobVals[k] = ix; sp(def.k, def.opts[ix]);
                 lastKnob = k; lastKnobLbl = def.lbl; lastKnobVal = def.opts[ix]; showView('knobs'); return;
             }
-            const step = (def.step !== undefined) ? def.step : (def.hi - def.lo) * 0.02;
-            const center = (def.lo + def.hi) / 2;
+            const step = (def.step !== undefined) ? def.step : (def.hi - def.lo) * 0.006;
             let nv = knobVals[k] + decodeDelta(d2) * step;
-            nv = center + Math.round((nv - center) / step) * step;   /* grid aligned to centre -> exact 0.5 / 1.0x */
+            if (def.clk || def.spd) { const center = (def.lo + def.hi) / 2; nv = center + Math.round((nv - center) / step) * step; }  /* clk/spd land on exact 0.5/1x */
             nv = clampf(nv, def.lo, def.hi);
             knobVals[k] = nv;
             if (def.e2) { sp(def.k, nv > 0.5 ? '1' : '0'); lastKnobVal = def.e2[nv > 0.5 ? 1 : 0]; }
@@ -1364,6 +1397,7 @@ globalThis.onMidiMessageInternal = function (data) {
         }
         if (d1 in NOTE_TO_RIGHT) {                  /* punch-in FX: hold to apply, knobs edit it */
             const i = NOTE_TO_RIGHT[d1];
+            if (menu >= 0 && !delHeld && !undoHeld && !shiftHeld) { menu = -1; paintTrackLEDs(); paintNav(); }   /* a punch pad leaves any menu */
             if (shiftHeld && punchLatched[i]) {     /* Shift+pad on a latched effect = unlatch (stop) */
                 punchLatched[i] = false; pressFrozen[i] = false; padPress[i] = 0; pressMax[i] = 0;
                 const hi0 = heldPunch.indexOf(i); if (hi0 >= 0) heldPunch.splice(hi0, 1);
@@ -1377,9 +1411,10 @@ globalThis.onMidiMessageInternal = function (data) {
                 if (delPads.indexOf(i) < 0 && delPads.length < 5) delPads.push(i); delUsed = true;
                 enqLED(RIGHT_NOTES[i], White); setMsg('Step: ' + delPads.concat(physHeld).map(x => PUNCH_NAMES[x]).join('+')); return;
             }
-            if (undoHeld) {                          /* Undo + pad = this effect back to its defaults */
-                punchVals[i] = PUNCH_DEFAULTS[i].slice(); undoUsed = true;
-                for (let j = 0; j < 4; j++) sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4));
+            if (undoHeld) {                          /* Undo + pad = this effect + its LFO back to defaults */
+                punchVals[i] = PUNCH_DEFAULTS[i].slice(); punchLfo[i] = PUNCH_LFO_DEFAULTS[i].slice(); undoUsed = true;
+                for (let j = 0; j < 4; j++) { sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4)); sp('pflfo', i + ':' + j + ':' + punchLfo[i][j].toFixed(4)); }
+                padFlash[i] = now() + 130; enqLED(RIGHT_NOTES[i], White);   /* quick LED flash to confirm the reset */
                 setMsg('Reset ' + PUNCH_NAMES[i]); dirty = true; return;
             }
             pressFrozen[i] = false; padPress[i] = 0; pressMax[i] = 0;   /* a new hold starts with live pressure */
@@ -1387,7 +1422,7 @@ globalThis.onMidiMessageInternal = function (data) {
             if (heldPunch.indexOf(i) < 0 && heldPunch.length < 5) heldPunch.push(i);   /* up to 5 in series (NUM_PSLOTS) */
             if (physHeld.indexOf(i) < 0) physHeld.push(i);
             punchActive = i; punchMode = true;
-            for (let j = 0; j < 4; j++) sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4)); /* push this pad's params */
+            for (let j = 0; j < 4; j++) { sp('pfx', i + ':' + j + ':' + punchVals[i][j].toFixed(4)); sp('pflfo', i + ':' + j + ':' + punchLfo[i][j].toFixed(4)); }
             sp('punch', 'on:' + i);
             enqLED(RIGHT_NOTES[i], rightColor(i));
             setMsg((punchLatched[i] ? 'Latch ' : 'Punch ') + PUNCH_NAMES[i]);

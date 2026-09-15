@@ -1166,7 +1166,7 @@ typedef struct {
     int    ready;
     float  p_amt, p_mac, p_drf; int primed;
     /* flat pools + per-slot offsets (one alloc, no per-line buffers) */
-    float  lbuf[VEIL_LPOOL]; int loff[VEIL_LINE], lmax[VEIL_LINE], llen[VEIL_LINE], lw[VEIL_LINE];
+    float  lbuf[VEIL_LPOOL]; int loff[VEIL_LINE], lmax[VEIL_LINE], llen[VEIL_LINE], lw[VEIL_LINE]; float llen_s[VEIL_LINE];
     float  dbuf[VEIL_DPOOL]; int doff[VEIL_DIFF], dmax[VEIL_DIFF], dlen[VEIL_DIFF], dw[VEIL_DIFF];
     double lph[VEIL_LINE], dph[VEIL_DIFF];
     float  llfo[VEIL_LINE], dlfo[VEIL_DIFF], lmod[VEIL_LINE], llp[VEIL_LINE];
@@ -1182,8 +1182,9 @@ static void veil_init(pfx_veil_t *v){
         int m = (int)((VEIL_LMS[i] * 2.6f + 10.0f) * SR / 1000.0f);
         if(off + m > VEIL_LPOOL) m = VEIL_LPOOL - off;        /* pool guard */
         if(m < 8) m = 8;
-        v->loff[i] = off; v->lmax[i] = m; off += m;
+        v->loff[i] = off; v->lmax[i] = m; off += m; v->llen[i] = (int)(VEIL_LMS[i] * SR / 1000.0f);
         v->lph[i] = 0.09 * i;
+        v->llen_s[i] = (float)v->llen[i];
         v->lmod[i] = (float)((1.5 + 0.28 * i) * SR / 1000.0);  /* 1.5..3.5 ms */
     }
     off = 0;
@@ -1268,7 +1269,8 @@ static void fx_veil(slot_dsp_t *dsp, float *l, float *r, int n,
         /* FDN: modulated reads + in-loop damping, Householder mix, write back */
         float lo[VEIL_LINE], sum = 0.0f;
         for(int i=0;i<VEIL_LINE;i++){
-            float delay = v->llen[i] + v->llfo[i] * v->lmod[i] * v->modscale;
+            v->llen_s[i] += ((float)v->llen[i] - v->llen_s[i]) * 0.0006f;   /* ~35 ms glide: size morphs, no scratch */
+            float delay = v->llen_s[i] + v->llfo[i] * v->lmod[i] * v->modscale;
             float rd = veil_read(v->lbuf + v->loff[i], v->lmax[i], v->lw[i], delay);
             v->llp[i] += v->damp * (rd - v->llp[i]);
             if(!(v->llp[i] > 1e-20f || v->llp[i] < -1e-20f)) v->llp[i] = 0.0f;   /* denormal flush */
