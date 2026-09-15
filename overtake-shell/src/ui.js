@@ -318,7 +318,7 @@ const PAGE2 = [   /* Loop page 3 / Tone (Right arrow) — Studer EQ + DJ reso + 
     { k: 'v_tilt', lo: -1, hi: 1, lbl: 'Tilt' },      { k: 'v_atk', lo: 0, hi: 1, lbl: 'Atk' },
     { k: 'v_rel', lo: 0, hi: 1, lbl: 'Dec' },         { k: '_heads', page: 3, lbl: 'Heads' },
 ];
-const HEAD_MODES = ['Off', 'Fwd', 'Bwd', 'Ping'];
+const HEAD_MODES = ['Off', 'Fwd', 'Bwd', 'Ping', 'Jump'];
 const PAGE3 = [   /* Loop page 4 — Playheads: mode + speed per head (touch one, jog moves it) */
     { k: 'v_ph1mode', opts: HEAD_MODES, lbl: 'H1' },  { k: 'v_ph1spd', lo: 0, hi: 1, lbl: 'H1spd', clk: true, step: 0.1 / 48 },
     { k: 'v_ph2mode', opts: HEAD_MODES, lbl: 'H2' },  { k: 'v_ph2spd', lo: 0, hi: 1, lbl: 'H2spd', clk: true, step: 0.1 / 48 },

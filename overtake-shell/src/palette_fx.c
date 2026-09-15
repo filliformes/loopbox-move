@@ -541,11 +541,12 @@ static void delay_core(slot_dsp_t *s, float *l, float *r, int n,
         s->z1r+=lp_amt*(tapR-s->z1r)+DENORM; s->z2r+=lp_amt*(s->z1r-s->z2r)+DENORM;
         float fl=delay_saturate(s->z2l*fb, sat_drive, 0.02f);
         float fr=delay_saturate(s->z2r*fb, sat_drive, 0.02f);
-        if(hiss>0.0f){ float sig=fabsf(tapL)+fabsf(tapR);   /* gated tape hiss */
-            if(sig>0.001f){ fl+=hiss*(frand(&s->seed)-0.5f); fr+=hiss*(frand(&s->seed)-0.5f); } }
-        s->dl_l[s->wp]=l[i]+fl; s->dl_r[s->wp]=r[i]+fr;
+        s->dl_l[s->wp]=l[i]+fl; s->dl_r[s->wp]=r[i]+fr;   /* hiss stays OUT of the feedback path */
         s->wp=(s->wp+1)%MAX_DELAY;
-        l[i]+=tapL*0.9f*wet; r[i]+=tapR*0.9f*wet;
+        float hsL=0.0f,hsR=0.0f;
+        if(hiss>0.0f){ float sig=fabsf(tapL)+fabsf(tapR);   /* gated tape hiss, on the wet output only */
+            if(sig>0.001f){ hsL=hiss*(frand(&s->seed)-0.5f); hsR=hiss*(frand(&s->seed)-0.5f); } }
+        l[i]+=(tapL*0.9f+hsL)*wet; r[i]+=(tapR*0.9f+hsR)*wet;
     }
 }
 /* CASCADE — BBD bucket-brigade: brighter-but-bandlimited repeats, fast subtle

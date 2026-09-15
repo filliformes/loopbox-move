@@ -150,7 +150,7 @@ static inline double apply_stability(double x, double amt, uint32_t *rng) {
 
 /* One read head over a loop: 0=off 1=fwd 2=bwd 3=ping-pong. Head 0 shares the
  * voice's playPhase (so scatter/Seed/scrub/jump keep driving it). */
-typedef struct { int mode; float spd, spdCache; double mult, phase, env; int dir; double xfPhase; int xf; } Playhead;   /* xf: samples left of a jump crossfade */
+typedef struct { int mode; float spd, spdCache; double mult, phase, env; int dir; double xfPhase; int xf; int jumpCd; } Playhead;   /* xf: crossfade samples left; jumpCd: samples to next random jump (Jump mode) */
 typedef enum { OD_REPLACE=0, OD_MULTIPLY=1, OD_DISINTEGRATION=2 } OverdubMode;
 typedef enum { VS_EMPTY=0, VS_RECORDING, VS_PLAYING, VS_PAUSED, VS_OVERDUBBING } VoiceState;
 
@@ -328,6 +328,7 @@ typedef struct {
     float driftSm[8];                 /* smoothed controls, no stepping */
     float *drL[4], *drR[4]; int drLen[4]; int drW[4];
     double drPh[4]; float drDL[4], drDR[4]; double drInEnv;
+    int drSilent; float drBleed;   /* abandoned-tail silence bleed */
     Biquad eqLoSh, eqMidPk, eqHiSh; int eqCrush; float eqSat, eqMakeup; double eqCrushHoldL,eqCrushHoldR; int eqCrushCnt;
     double glueEnvL,glueEnvR, tapeLimEnv;
     double compEnvL,compEnvR,casLpL,casLpR;uint32_t rng;
@@ -1014,6 +1015,11 @@ static void voice_render(Voice *v, loopbox_t *s, int n, double *outL, double *ou
         if(v->ph[0].mode==3&&!scrubbing){ if(v->playPhase>=dEnd){v->playPhase=dEnd-1.0;v->ph[0].dir=-1;}
             else if(v->playPhase<dStart){v->playPhase=dStart;v->ph[0].dir=1;} }
         else { while(v->playPhase>=dEnd)v->playPhase-=(double)effLen;while(v->playPhase<dStart)v->playPhase+=(double)effLen; }
+        if(v->ph[0].mode==4&&!scrubbing){ if(--v->ph[0].jumpCd<=0){         /* Jump: forward with periodic random leaps */
+            v->ph[0].jumpCd=(int)(SR*(0.06+0.5*(lb_rand(&v->rng)*0.5+0.5)));
+            v->scatXfadePhase=v->playPhase; v->scatXfade=64;                 /* declick the leap */
+            v->playPhase=dStart+(lb_rand(&v->rng)*0.5+0.5)*(double)effLen;
+            while(v->playPhase>=dEnd)v->playPhase-=(double)effLen; } }
         v->playHead=(int)v->playPhase; }
     /* Amp envelope: attack fades in on trigger/unmute, release fades out on mute/pause/stop.
      * Attack 3ms..3s, Release 3ms..5s (param 0 = click-free floor); coeffs cached, recomputed on change. */
@@ -1049,7 +1055,12 @@ static void voice_render(Voice *v, loopbox_t *s, int n, double *outL, double *ou
             if(P->mode==3){ if(P->phase>=(double)effEnd){P->phase=(double)effEnd-1.0;P->dir=-1;}
                             else if(P->phase<(double)effStart){P->phase=(double)effStart;P->dir=1;} }
             else { while(P->phase>=(double)effEnd)P->phase-=(double)effLen;
-                   while(P->phase<(double)effStart)P->phase+=(double)effLen; } } }
+                   while(P->phase<(double)effStart)P->phase+=(double)effLen; }
+            if(P->mode==4){ if(--P->jumpCd<=0){                              /* Jump: periodic random leaps */
+                P->jumpCd=(int)(SR*(0.06+0.5*(lb_rand(&v->rng)*0.5+0.5)));
+                P->xfPhase=P->phase; P->xf=64;
+                P->phase=(double)effStart+(lb_rand(&v->rng)*0.5+0.5)*(double)effLen;
+                while(P->phase>=(double)effEnd)P->phase-=(double)effLen; } } } }
     if(envSum>1.0){ double nrm=1.0/sqrt(envSum); rawL*=nrm; rawR*=nrm; }   /* keep level sane as heads stack */
     /* Pitch (P2 knob 1): Signalsmith Stretch, independent of the playback rate.
      * The shifter runs one 128-frame block late (psIn this block -> psOut next block).
@@ -1181,7 +1192,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         v->ps=ps_create(44100.0f,128,(i*512)/NUM_VOICES);   /* staggered so the 16 STFTs do not land in one callback */
         v->filterSm=0.5f;v->volSm=(double)v->volume;v->panSm=0.0;
         /* heads: 1 on @1x, 2 off @0.5x, 3 off @2x, 4 off @1x  (spd: 0.5=1x, 0.25=0.5x, 0.75=2x) */
-        for(int k=0;k<4;k++){ v->ph[k].mode=0; v->ph[k].dir=1; v->ph[k].env=0.0; v->ph[k].phase=0.0; v->ph[k].spdCache=-1.0f; }
+        for(int k=0;k<4;k++){ v->ph[k].mode=0; v->ph[k].dir=1; v->ph[k].env=0.0; v->ph[k].phase=0.0; v->ph[k].spdCache=-1.0f; v->ph[k].jumpCd=0; }
         v->ph[0].mode=1; v->ph[0].spd=0.5f; v->ph[0].env=1.0;
         v->ph[1].spd=0.25f; v->ph[2].spd=0.75f; v->ph[3].spd=0.5f;
         bq_reset(&v->djLpA);bq_reset(&v->djHpA);
@@ -1189,7 +1200,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         bq_reset(&v->tiltLo);bq_reset(&v->tiltHi);
         dj_filter_update(v);studer_eq_update(v);tilt_eq_update(v);}
     s->globalSat=0.0f;s->masterComp=0.0f;s->masterLoCut=20.0f;s->masterHiCut=20000.0f;s->masterVol=1.0f;
-    s->preamp=1.0f;s->overdubMode=0.0f;s->stability=0.0f;s->selTrack=1;s->rng=42;   /* 1 = Clean (0 = Tapeless) */
+    s->preamp=1.0f;s->overdubMode=1.0f;s->stability=0.0f;s->selTrack=1;s->rng=42;   /* 1 = Clean; overdub 1 = Multiply default */
     s->midiIn=0;s->armThresh=0.08f;
     s->tapeNoise=0.5f;s->tapeDrive=0.0f;s->tapeHF=1.0f;s->tapeLoCut=0.0f;s->tapeWow=0.0f;s->tapeFlut=0.0f;s->tapeGen=0.0f;
     s->globalWowFlut=0.0f;s->inputMonitor=0.5f;s->inputGain=1.0f;s->gFlutNextMax=0.5;
@@ -1210,7 +1221,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         s->drL[i]=(float*)calloc((size_t)s->drLen[i],sizeof(float));
         s->drR[i]=(float*)calloc((size_t)s->drLen[i],sizeof(float));
         s->drW[i]=0; s->drPh[i]=0.25*i; s->drDL[i]=0.0f; s->drDR[i]=0.0f; }
-    s->drInEnv=0.0;
+    s->drInEnv=0.0; s->drSilent=0; s->drBleed=1.0f;
     s->driftAmt=0.0f; s->driftRate=0.30f; s->driftSize=0.50f; s->driftFb=0.60f;
     s->driftSupr=0.0f; s->driftBlur=0.40f; s->driftDamp=0.40f; s->driftMix=0.0f;
     s->driftSm[0]=0.0f; s->driftSm[1]=0.30f; s->driftSm[2]=0.50f; s->driftSm[3]=0.60f;
@@ -1671,6 +1682,11 @@ static inline void drift_sample(loopbox_t *s, double *l, double *r){
     double inL=*l, inR=*r;
     double ie=fabs(inL)+fabs(inR); s->drInEnv += (ie - s->drInEnv)*0.0016;   /* input level for the suppressor */
     double sg = 1.0 - (double)supr*fmin(1.0, s->drInEnv*3.0);
+    /* Silence bleed: once nothing has fed the memory for ~8 s, ramp the feedback
+     * down so an abandoned tail always dies instead of droning forever. */
+    if(s->drInEnv > 0.0008) s->drSilent = 0; else if(s->drSilent < (1<<30)) s->drSilent++;
+    float bleedTgt = (s->drSilent > (int)(8.0*SR)) ? 0.0f : 1.0f;
+    s->drBleed += (bleedTgt - s->drBleed) * 2.6e-5f;   /* ~4 s ramp to silence */
     double yL[DRIFT_N], yR[DRIFT_N];
     double tapFrac = 0.12 + 0.80*(double)size;
     double baseRate = (0.05 + 0.9*(double)rate)/(double)SR;
@@ -1690,7 +1706,7 @@ static inline void drift_sample(loopbox_t *s, double *l, double *r){
     double hR0=0.5*( yR[0]+yR[1]+yR[2]+yR[3]), hR1=0.5*( yR[0]-yR[1]+yR[2]-yR[3]);
     double hR2=0.5*( yR[0]+yR[1]-yR[2]-yR[3]), hR3=0.5*( yR[0]-yR[1]-yR[2]+yR[3]);
     double hL[4]={hL0,hL1,hL2,hL3}, hR[4]={hR0,hR1,hR2,hR3};
-    double b=(double)blur, fbg=(double)fb*1.02;
+    double b=(double)blur, fbg=(double)fb*0.97*(double)s->drBleed;   /* capped < 1 so the tail always fades */
     double dco=0.05+0.9*(1.0-(double)damp);                 /* Damp 1 -> heavy low-pass in the tail */
     for(int i=0;i<DRIFT_N;i++){
         int len=s->drLen[i];
@@ -2087,7 +2103,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     if(strncmp(key,"v_ph",4)==0&&key[4]>='1'&&key[4]<='4'){
         int hi=key[4]-'1'; const char *sub=key+5;
         if(strcmp(sub,"mode")==0){
-            static const char *mo[]={"Off","Fwd","Bwd","Ping"};
+            static const char *mo[]={"Off","Fwd","Bwd","Ping","Jump"};
             int m=match_enum(val,mo,4); if(m<0)m=(int)lb_clampf((float)atof(val),0.0f,3.0f);
             int was=v->ph[hi].mode; v->ph[hi].mode=m;
             if(m>0&&was==0){   /* turning a head on always restarts it at the loop start */
@@ -2129,7 +2145,7 @@ static void set_param(void *inst, const char *key, const char *val) {
             else if(strcmp(sub,"pit2")==0)vr->clock=lb_clampf(fv,-2,2);   /* old "clk" (a rate) is ignored: not the same parameter any more */
             else if(strcmp(sub,"ph")==0){ int m[4]; float sp[4];
                 if(sscanf(val,"%d,%f,%d,%f,%d,%f,%d,%f",&m[0],&sp[0],&m[1],&sp[1],&m[2],&sp[2],&m[3],&sp[3])==8)
-                    for(int k=0;k<4;k++){ vr->ph[k].mode=(m[k]<0||m[k]>3)?0:m[k];
+                    for(int k=0;k<4;k++){ vr->ph[k].mode=(m[k]<0||m[k]>4)?0:m[k];
                         vr->ph[k].spd=lb_clampf(sp[k],0,1); vr->ph[k].env=(vr->ph[k].mode>0)?1.0:0.0; } }
             studer_eq_update(vr);tilt_eq_update(vr);}return;}
 }
@@ -2333,7 +2349,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     GETVP("v_djReso",djReso) GETVP("v_atk",ampAtk) GETVP("v_rel",ampRel) GETVP("v_comp",comp) GETVP("v_clock",clock)
     if(strncmp(key,"v_ph",4)==0&&key[4]>='1'&&key[4]<='4'){
         int hi=key[4]-'1'; const char *sub=key+5;
-        static const char *mo[]={"Off","Fwd","Bwd","Ping"};
+        static const char *mo[]={"Off","Fwd","Bwd","Ping","Jump"};
         if(strcmp(sub,"mode")==0){ int m=v->ph[hi].mode; if(m<0||m>3)m=0; return snprintf(buf,buf_len,"%s",mo[m]); }
         if(strcmp(sub,"spd")==0) return snprintf(buf,buf_len,"%.4f",(double)v->ph[hi].spd); }
 
