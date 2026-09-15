@@ -278,6 +278,7 @@ const VIEW_MS = 10000;                     /* 10s of real time before falling ba
 let sampleHeld = false, jogHead = -1;      /* Shift+Sample+jog = arm threshold; P4 touch = head to move */
 let waveStr = '', headsStr = '';
 let waveStart = 0, waveEnd = 1;   /* current loop trim, for the waveform markers */
+let driftMixOn = false;           /* Drift Mix > 0.1 -> the Sample LED glows */
 function showView(v) { view = v; viewUntil = now() + VIEW_MS; dirty = true; }
 const LOOP_MULTS = [1.0, 0.5, 0.25, 0.125];
 const loopMultIdx = new Array(NV).fill(0);
@@ -386,7 +387,7 @@ function paintNav() {
     setButtonLED(MoveUndo,  WhiteLedDim, true);
     setButtonLED(MoveMute,  muteHeld ? WhiteLedBright : WhiteLedDim, true);
     setButtonLED(MoveCapture, menu === 4 ? WhiteLedBright : WhiteLedDim, true);
-    setButtonLED(MoveSample,  menu === 7 ? WhiteLedBright : WhiteLedDim, true);
+    setButtonLED(MoveSample,  menu === 7 ? WhiteLedBright : (driftMixOn ? WhiteLedDim : WhiteLedOff), true);
     setButtonLED(MoveMenu,    menu === 5 ? WhiteLedBright : WhiteLedDim, true);
     setButtonLED(MoveCopy,    copyHeld ? WhiteLedBright : WhiteLedDim, true);
     setButtonLED(MoveLoop,    loopHeld ? WhiteLedBright : WhiteLedDim, true);
@@ -1241,6 +1242,8 @@ globalThis.tick = function () {
         if (tickCount % 12 === 5) { const a = parseFloat(gp('v_start')); if (!isNaN(a)) waveStart = a;
                                     const b = parseFloat(gp('v_end'));   if (!isNaN(b)) waveEnd = b; }
     }
+    if (tickCount % 15 === 9) { const m = parseFloat(gp('driftMix')); const on = !isNaN(m) && m > 0.1;
+        if (on !== driftMixOn) { driftMixOn = on; paintNav(); } }
     if (tickCount % 6 === 0) pollStates();
     if (tickCount % 15 === 3) { const c = gp('cpu'); if (c) cpu = c; }
     if (tickCount % 12 === 7) { const l = gp('v_loopLen'); if (l) loopLen = l; const p = gp('inputPeak'); if (p) inPeak = p; }

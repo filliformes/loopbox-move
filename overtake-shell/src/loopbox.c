@@ -292,6 +292,7 @@ typedef struct {
     float pinL[128],pinR[128],poutL[128],poutR[128];
     /* shimmer 2-head pitch-shift + LP feedback */
     float shL[SHBUF], shR[SHBUF]; int shW; double shR1, shFbL, shFbR;
+    float dblBuf[1024]; int dblW, dblHold; double dblPh; float dblGain;   /* shared stereo microshifter */
 } PunchSlot;
 
 typedef struct {
@@ -650,6 +651,7 @@ static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
     ps->idx=idx; ps->env=0.0; ps->releasing=0; ps->restartPend=0; const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
     memcpy(ps->pSm,P,sizeof ps->pSm);   /* no glide on engage: start at the pad's values */
     ps->elCur=0.0; ps->sliceStartT=-1.0; ps->pressSm=0.0; ps->dPow=ps->wPow=0.0; ps->mkGain=1.0;
+    ps->dblW=0; ps->dblHold=(int)(SR*0.02); ps->dblPh=0.0; ps->dblGain=0.0f; memset(ps->dblBuf,0,sizeof ps->dblBuf);
     double beat=punch_beat();
     if(ps->gRng==0)ps->gRng=0x1234567u+(uint32_t)idx*2654435761u;
     if(d->mech==PM_REPEAT||d->mech==PM_REVERSE||d->mech==PM_GLIDE||d->mech==PM_CHOP){
@@ -781,6 +783,23 @@ static inline void punch_grains_out(PunchSlot *ps, double *sl, double *sr){
 }
 /* per-sample: one slot reads its own ring and produces wet (ring already written by caller).
  * Pressure (s->punchPress) drives each effect's most musical parameter — see the UI map. */
+/* Stereo microshifter: two slowly-detuned taps off a mono ring, widening a mono
+ * effect into stereo. A hold + fade-in on engage means the ring is primed before
+ * the taps read it, so there is no zero-to-signal step (the old engage click). */
+#define DBL_BUF 1024
+static inline void punch_doubler(PunchSlot *ps, double *sl, double *sr){
+    float mono=(float)(0.5*(*sl+*sr)); int wr=ps->dblW; ps->dblBuf[wr]=mono;
+    ps->dblW++; if(ps->dblW>=DBL_BUF)ps->dblW=0;
+    if(ps->dblHold>0){ ps->dblHold--; return; }             /* fill the ring past the max tap first */
+    ps->dblGain += (1.0f-ps->dblGain)*0.0008f;              /* ~14 ms fade-in */
+    ps->dblPh+=0.13/SR; if(ps->dblPh>=1.0)ps->dblPh-=1.0;
+    double m1=sin(TWOPI*ps->dblPh), m2=sin(TWOPI*(ps->dblPh*1.46+0.25));
+    double dl=(double)(SR*0.009)+m1*(SR*0.0016), dr=(double)(SR*0.013)+m2*(SR*0.0016);
+    double rpl=(double)wr-dl; while(rpl<0)rpl+=DBL_BUF; double rpr=(double)wr-dr; while(rpr<0)rpr+=DBL_BUF;
+    int il=((int)rpl)%DBL_BUF, ir=((int)rpr)%DBL_BUF;
+    double dblL=ps->dblBuf[il], dblR=ps->dblBuf[ir], g=(double)ps->dblGain;
+    *sl=*sl*0.8+dblL*0.5*g; *sr=*sr*0.8+dblR*0.5*g;
+}
 static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double *outL, double *outR){
     const PunchDef *d=&PUNCH_DEFS[ps->idx];
     for(int j=0;j<4;j++) ps->pSm[j]+=(s->punchParams[ps->idx][j]-ps->pSm[j])*0.004f;   /* ~6 ms: knob detents do not step the sound */
@@ -869,15 +888,7 @@ static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double
         for(int i=0;i<2;i++){ double a=ps->gAge[i]; double wph=a/ps->gDur[i]; if(wph>=1.0){ps->gAct[i]=0;continue;}
             double win=0.5-0.5*cos(TWOPI*wph), rp=ps->gPos[i]+a*ps->gRate[i];
             sl+=(double)ring_read(ps->ringL,rp)*win; sr+=(double)ring_read(ps->ringR,rp)*win; ps->gAge[i]+=1.0; }
-        /* doubler: two slowly-detuned taps off a mono ring widen the grains.
-         * (~0.13/0.19 Hz LFOs — the earlier 0.017/sample increment was ~750 Hz and FM-mangled it.) */
-        { float mono=(float)(0.5*(sl+sr)); int wr=ps->shW; ps->shL[wr]=mono; ps->shW++; if(ps->shW>=SHBUF)ps->shW=0;
-          ps->shR1+=0.13/SR; if(ps->shR1>=1.0)ps->shR1-=1.0;
-          double m1=sin(TWOPI*ps->shR1), m2=sin(TWOPI*(ps->shR1*1.46+0.25));
-          double dl=(double)(SR*0.009)+m1*(SR*0.0016), dr=(double)(SR*0.013)+m2*(SR*0.0016);
-          double rpl=(double)wr-dl; while(rpl<0)rpl+=SHBUF; double rpr=(double)wr-dr; while(rpr<0)rpr+=SHBUF;
-          int il=((int)rpl)%SHBUF, ir=((int)rpr)%SHBUF; double dblL=ps->shL[il], dblR=ps->shL[ir];
-          sl=sl*0.8+dblL*0.5; sr=sr*0.8+dblR*0.5; }
+        punch_doubler(ps,&sl,&sr);   /* stereo width */
         *outL=sl; *outR=sr; return; }
     if(d->mech==PM_SHIMMER){   /* octave-up shifter in band-limited feedback: P0=Regen P1=Pitch (0.5 = +1 oct) P2=Tone; pressure = regen */
         double ratio=pow(2.0,(double)P[1]*2.0), regen=(double)P[0]*0.85+press*0.3; if(regen>0.95)regen=0.95;
@@ -894,6 +905,7 @@ static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double
         ps->shW++; if(ps->shW>=SHBUF)ps->shW=0;
         double fl=l,fr=r; if(toneOn){ fl=bq_L(&ps->toneFilt,fl); fr=bq_R(&ps->toneFilt,fr); }
         ps->shFbL=lb_tanh(fl*regen); ps->shFbR=lb_tanh(fr*regen);   /* each pass climbs another interval: the shimmer */
+        punch_doubler(ps,&l,&r);   /* stereo width */
         *outL=l; *outR=r; return; }
     if(d->mech==PM_PITCH){   /* delay-line pitch shift: 2 heads a half-window apart, Hann-crossfaded (click-free) */
         double ratio=d->param*pm*(1.0+((double)P[0]-0.5)*0.1);
@@ -904,7 +916,9 @@ static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double
         double rp1=(double)ps->w-d1, rp2=(double)ps->w-d2;
         double l=((double)ring_read(ps->ringL,rp1)*w1+(double)ring_read(ps->ringL,rp2)*w2)/ws;
         double r=((double)ring_read(ps->ringR,rp1)*w1+(double)ring_read(ps->ringR,rp2)*w2)/ws;
-        if(toneOn){ l=bq_L(&ps->toneFilt,l); r=bq_R(&ps->toneFilt,r); } *outL=l; *outR=r; return; }
+        if(toneOn){ l=bq_L(&ps->toneFilt,l); r=bq_R(&ps->toneFilt,r); }
+        punch_doubler(ps,&l,&r);   /* stereo width */
+        *outL=l; *outR=r; return; }
     /* ---- slice-based mechs: REPEAT / REVERSE / GLIDE / CHOP (all autopanned to their cycle) ---- */
     /* Target slice length from the knob + pressure; the length IN USE (elCur) only
      * changes when a slice wraps, where the edge fade already sits at zero - so
@@ -942,7 +956,9 @@ static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double
     double l=(double)ring_read(ps->ringL,pos)*gate*bf, r=(double)ring_read(ps->ringR,pos)*gate*bf;
     double cyc=ps->readPhase/el; if(d->mech==PM_CHOP) cyc=(double)(ps->chopStep&1);   /* chop: alternate L/R per hit */
     punch_autopan(cyc,0.7,&l,&r);
-    if(toneOn){ l=bq_L(&ps->toneFilt,l); r=bq_R(&ps->toneFilt,r); } *outL=l; *outR=r;
+    if(toneOn){ l=bq_L(&ps->toneFilt,l); r=bq_R(&ps->toneFilt,r); }
+    if(d->mech==PM_CHOP) punch_doubler(ps,&l,&r);   /* stereo width */
+    *outL=l; *outR=r;
 }
 
 /* Read a voice's buffer at an absolute phase (wrapped + linear-interpolated). */
@@ -1846,7 +1862,10 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
                     ps->mkGain+=(tg-ps->mkGain)*0.002; wl*=ps->mkGain; wr*=ps->mkGain; }
                   if(hold){ ps->w--; if(ps->w<0)ps->w=PUNCH_BUF-1; }                          /* net: w stays put while holding */
                   if(ps->restartPend&&!ps->releasing){ ps->env+=(0.0-ps->env)*0.06; if(ps->env<0.01) punch_slot_start(s,ps,ps->idx); }   /* queued retrigger */
-                  else ps->env += ((ps->releasing?0.0:1.0)-ps->env)*0.003;  /* ~7ms engage/release fade (1ms clicked on gated FX) */
+                  else { int mm=PUNCH_DEFS[ps->idx].mech;
+                         int slice=(mm==PM_REPEAT||mm==PM_REVERSE||mm==PM_GLIDE||mm==PM_CHOP);
+                         double ak=ps->releasing?0.003:(slice?0.02:0.0013);   /* slice mechs stay punchy; shifters/grains fade in ~18ms so engage never clicks */
+                         ps->env += ((ps->releasing?0.0:1.0)-ps->env)*ak; }
                   { double wf=(double)s->punchWidth*2.0, wm=0.5*(wl+wr), wsd=0.5*(wl-wr)*wf; wl=wm+wsd; wr=wm-wsd; }   /* effect stereo width: 0 mono .. 0.5 normal .. 1 wide (wet only) */
                   float *P=ps->pSm; double em=(PUNCH_DEFS[ps->idx].mech==PM_PALETTE)?ps->env:((double)P[3]+(1.0-(double)P[3])*ps->pressSm)*ps->env; if(em>1.0)em=1.0;
                   xl=xl+(wl-xl)*em; xr=xr+(wr-xr)*em;
