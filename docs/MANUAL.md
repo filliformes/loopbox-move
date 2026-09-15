@@ -116,7 +116,7 @@ Knobs 5–8 only follow a pad while it is physically held; latched pads keep run
 
 ---
 
-## 4. Menus (Track buttons, Capture, Sample)
+## 4. Menus (Track buttons, Capture, Sample, Menu)
 
 | Button | Menu | K1 | K2 | K3 | K4 | K5 | K6 | K7 | K8 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -125,7 +125,8 @@ Knobs 5–8 only follow a pad while it is physically held; latched pads keep run
 | Track 3 | **Send FX** | A FX | A Amount | A Macro | A Drift | B FX | B Amount | B Macro | B Drift |
 | Track 4 | **Settings** | Master Vol | gSat (to 2.0) | Lo Cut (20–1000 Hz) | Hi Cut | Arm Threshold | ODub mode | Root | MIDI |
 | Capture | **Input Tape** | Tape Style | Drive | Wow | Flutter | HF | Lo Cut | Hiss | Generations |
-| Sample | **Sessions** | Slot | Save | Load | | | | | |
+| Sample | **Drift** | Drift | Rate | Size | FBk | Supr | Blur | Damp | Mix |
+| ≡ (Menu) | **Sessions** | Slot | Save | Load | | | | | |
 | ✕ (held) | **FX Seq** | Run | Speed | Length | Chance | Gate | Swing | Direction | Clear |
 
 Press the same button again, or **Back**, to close a menu. Enums step once per four detents so a fast turn does not race through the list.
@@ -147,6 +148,7 @@ Press the same button again, or **Back**, to close a menu. Enums step once per f
   lush rather than metallic. Size changes glide, so turning Amount morphs the room
   tape-style instead of clicking.
 - **Perform** — Stumble (a probabilistic step glitcher), plus **Jump** (crossfaded random jump on every playing loop) and **Scan** (a fast sweep) as buttons.
+- **Drift** (Sample button) — a global drifting-delay memory in the spirit of Soma COSMOS. Four coprime-length delay lines, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the line lengths are coprime and each has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so the ambient layer picks up the character EQ, glue and limiter. Feedback is tanh-limited, so a high setting sustains without running away. Knobs: **Drift** (how much loop mix is fed in) · **Rate** (tap-drift speed) · **Size** (tap length, shimmer to long hall) · **FBk** (memory sustain, below unity fades, near unity holds) · **Supr** (loud new input erases old memory: play over to replace) · **Blur** (self-feedback → full cross-mix) · **Damp** (high-frequency damping of the tail) · **Mix** (wet level into the master). Drift and Mix start at zero, so it is silent until dialled in; it saves with the session.
 - **MIDI** — off by default so Move's track MIDI cannot trigger loops. On, an external keyboard plays the selected loop chromatically with 8-voice polyphony.
 
 ---
@@ -178,7 +180,7 @@ Hold **Left** and the whole master brakes to a stop in about three seconds; hold
 
 ---
 
-## 7. Sessions (Sample button)
+## 7. Sessions (≡ Menu button)
 
 Thirty-two slots. **Slot** browses (one slot per four detents), **Save** writes, **Load** reads. Saving over a used slot asks first (K8 = yes, K5 = no, Back cancels). Each slot is named by date and time (`Sep 14 21:30` in the footer); the header shows which session is loaded, or **New**. A successful save shows a burst.
 
@@ -199,7 +201,7 @@ Per loop:    4 playheads -> Seed re-order -> Scatter -> Pitch (Stretch) -> satur
 Master:      sum of loops + MIDI poly -> input monitor -> + Palette send returns
              -> global saturation -> master wow/flutter -> master compressor
              -> lo/hi cut -> Stumble -> dropout -> punch FX (5 in series)
-             -> master volume -> soft limiter -> output
+             -> Drift -> master volume -> soft limiter -> output
 ```
 
 ---
@@ -215,7 +217,7 @@ Master:      sum of loops + MIDI poly -> input monitor -> + Palette send returns
 | Right pad · Shift + right pad · Shift while held · Undo + right pad | punch · latch · latch as-is · reset |
 | Step · same step again · Up / Down | select loop (waveform) · next page · prev/next page |
 | Jog | scrub · in P4: move the touched head |
-| Track 1–4 · Capture · Sample | Input FX · Perform · Send FX · Settings · Input Tape · Sessions |
+| Track 1–4 · Capture · Sample · ≡ | Input FX · Perform · Send FX · Settings · Input Tape · Drift · Sessions |
 | ✕ tap · ✕ hold · ✕ + pads + step · ✕ + step · ✕ + step + step | seq run/stop · pattern view · write · clear · extend |
 | ◀ / ▶ (held) | tape stop · tape wind |
 | Undo | revert last overdub, else restore last clear |

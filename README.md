@@ -111,8 +111,22 @@ A full input tape stage on the **Capture** button: **Tape model** (13, including
 **Tapeless** bypass) · Drive · Wow · Flutter · HF rolloff · Low cut · Hiss · **Generations**
 (approximates repeated dubs). Default is `Clean`.
 
+### Drift — a global evolving memory (Sample button)
+A drifting-delay memory station inspired by **Soma COSMOS**, on the **Sample** button. Four
+coprime-length delay lines, each read at a slowly drifting tap, feed back through a matrix
+that morphs from self-feedback to a normalised **Hadamard** cross-mix. The loop mix feeds it,
+the memory recirculates, and the coprime lengths plus per-line async LFOs keep it from ever
+landing on an exact repeat. It runs in the master chain just before the pump, tanh-limited so
+high feedback sustains without runaway.
+
+- **Drift** feed level · **Rate** tap-drift speed · **Size** tap length (shimmer → long hall)
+  · **FBk** memory sustain (below unity fades, near unity holds) · **Supr** loud input erases
+  old memory (play over to replace) · **Blur** self-feedback → full cross-mix · **Damp** tail
+  high-frequency damping · **Mix** wet into the master.
+- Drift and Mix start at zero (silent until dialled in); ~1.7 MB of memory; saves with the session.
+
 ### Sessions
-**32 numbered slots**, saved and loaded from the **Sample/Record** button, each named
+**32 numbered slots**, saved and loaded from the **≡ (Menu)** button, each named
 `slot_YYYYMMDD_HHMM`; saving over a used slot asks for confirmation. Settings *and*
 recorded audio are stored; all disk work runs on a `SCHED_OTHER` worker thread pinned to
 cores 0–2, never on the audio callback. Sessions live in
@@ -153,7 +167,8 @@ cores 0–2, never on the audio callback. Sessions live in
 | **Capture** | Input Tape menu |
 | **✕ (Delete)** | tap = run/stop the FX sequencer · hold = pattern view + FX Seq page |
 | **Left / Right** | tape stop / tape wind (held) |
-| **Sample/Record** | Sessions menu · **Shift + Sample** = threshold-arm (pad blinks red) · **+ jog** sets the threshold |
+| **Sample/Record** | Drift menu · **Shift + Sample** = threshold-arm (pad blinks red) · **+ jog** sets the threshold |
+| **≡ (Menu)** | Sessions menu |
 | **Mute / Copy / Loop** (held) | modifiers — lit while held |
 | **Undo** | revert the last overdub, else restore the last-cleared loop |
 | **Back** | close a menu, then exit |
@@ -178,7 +193,7 @@ Per voice:   4 playheads -> Seed slice re-order -> Scatter -> Pitch (Stretch) ->
 
 Master:      sum of voices + MIDI-poly -> input monitor -> + Palette send returns
              -> global saturation -> master wow/flutter -> compressor -> lo/hi cut
-             -> Stumble -> dropout -> punch-FX (5 in series) -> master out
+             -> Stumble -> dropout -> punch-FX (5 in series) -> Drift -> master out
              -> soft limiter -> output
 ```
 
@@ -270,6 +285,8 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 - **Chase Bliss Blooper, Mood MK2, Generation Loss MK2** — Stability, the old Clock's
   degradation, Disintegration overdub, Generations. https://www.chasebliss.com
 - **Hologram Microcosm** — the grain and glide punch families. https://hologramelectronics.com/microcosm
+- **Soma Laboratory COSMOS** — the Drift memory: prime-length shifting delay lines that recombine
+  endlessly into an ever-evolving ambient layer. https://somasynths.com/cosmos/
 - **norns loopers** — wrms, concrète, cranes, oooooo, otis, reels, ndls, samsara, mlre, nydl,
   giro: multiple playheads, threshold arm, loop multiples, jog scrub. https://norns.community
 - **Forgetful** — the Stumble perform gesture. https://github.com/charlesvestal/schwung (module catalog)

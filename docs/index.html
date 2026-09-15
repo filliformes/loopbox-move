@@ -144,6 +144,7 @@
   <a href="#lfo" class="sub">Per-effect LFO</a>
   <a href="#seq">FX sequencer</a>
   <a href="#perform">Perform &amp; master</a>
+  <a href="#drift">Drift</a>
   <a href="#sessions">Sessions</a>
   <a href="#cheat">Cheat sheet</a>
   <a href="#credits">Credits</a>
@@ -199,7 +200,7 @@
   <div class="notes l">
     <div><b>Screen</b>: the page on screen: loop params, a menu, or a held punch effect. <b>8 knobs</b> edit the page.</div>
     <div><b>Jog wheel</b>: scrub the selected loop, or move a playhead on the Heads page.</div>
-    <div><b class="g">&#8249;</b> Back closes a menu &middot; <b class="g">&#8801;</b> Menu.</div>
+    <div><b class="g">&#8249;</b> Back closes a menu &middot; <b class="g">&#8801;</b> Menu opens Sessions.</div>
     <div><b>Track buttons</b> (the four colours beside the pads): 1 Input FX &middot; 2 Perform &middot; 3 Send FX &middot; 4 Settings.</div>
     <div><b class="g">&#9655;</b> Play &middot; <b class="g">&#9675;</b> Record. Right of them: 16 steps select a loop or an FX-seq pattern.</div>
   </div>
@@ -212,10 +213,10 @@
     </div>
     <div class="mv-body" id="mvbody">
       <div class="jog" title="Jog wheel: scrub the loop"></div>
-      <div class="mv-backmenu"><div class="rb" title="Back">&#8249;</div><div class="rb" title="Menu">&#8801;</div></div>
+      <div class="mv-backmenu"><div class="rb" title="Back">&#8249;</div><div class="rb" title="Menu: Sessions">&#8801;</div></div>
       <div class="mv-playrec"><div class="rb" title="Play">&#9655;</div><div class="rb" title="Record">&#9675;</div></div>
       <div class="mv-steps" id="mvsteps"></div>
-      <div class="rb rbt" style="grid-column:11;grid-row:1" title="Capture: Input Tape">&#9974;</div><div class="rb rbt" style="grid-column:12;grid-row:1" title="Sample/Record: Sessions">&#9679;</div>
+      <div class="rb rbt" style="grid-column:11;grid-row:1" title="Capture: Input Tape">&#9974;</div><div class="rb rbt" style="grid-column:12;grid-row:1" title="Sample/Record: Drift">&#9679;</div>
       <div class="rb rbt" style="grid-column:11;grid-row:2" title="Loop: loop length">&#10226;</div><div class="rb rbt" style="grid-column:12;grid-row:2" title="Mute">M</div>
       <div class="rb rbt" style="grid-column:11;grid-row:3" title="Delete: FX sequencer">&#10005;</div><div class="rb rbt" style="grid-column:12;grid-row:3" title="Copy: clone">&#10697;</div>
       <div class="rb rbt" style="grid-column:11;grid-row:4" title="Undo">&#8617;</div><div class="rb rbt" style="grid-column:12;grid-row:4" title="Shift">&#8230;</div>
@@ -237,7 +238,7 @@
   </div></div>
   <div class="notes r">
     <div><b>Big knob</b>: master volume.</div>
-    <div><b class="g">&#9974;</b> Capture: Input Tape &middot; <b class="g">&#9679;</b> Sample: Sessions.</div>
+    <div><b class="g">&#9974;</b> Capture: Input Tape &middot; <b class="g">&#9679;</b> Sample: Drift.</div>
     <div><b class="g">&#10226;</b> Loop: loop length &middot; <b class="g">M</b> Mute.</div>
     <div><b class="g">&#10005;</b> Delete: FX sequencer &middot; <b class="g">&#10697;</b> Copy: clone.</div>
     <div><b class="g">&#8617;</b> Undo &middot; <b class="g">&#8230;</b> Shift.</div>
@@ -374,10 +375,22 @@
   <p class="muted">Settings page 2 holds arm threshold, overdub mode, root note, MIDI, and the punch-FX stereo width (mono → wide, per effect).</p>
 </section>
 
+<section id="drift">
+  <div class="eyebrow">Drift</div>
+  <h2>A memory that never quite repeats</h2>
+  <p class="lede">On the <b>Sample</b> button: a global drifting-delay memory station in the spirit of Soma COSMOS. Four delay lines of coprime length, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the lengths are coprime and every line has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so its ambient layer takes the character EQ, glue and limiter. Feedback is tanh-limited, so a high setting sustains forever without running away. Drift and Mix start at zero, so it stays silent until you dial it in, and it saves with the session.</p>
+  <div class="grid g2">
+    <div class="card"><h3>Drift &middot; Rate &middot; Size</h3><p><b>Drift</b> is how much of the loop mix is written into the memory. <b>Rate</b> is how fast the read taps drift. <b>Size</b> sets the tap length, from a close shimmer to a long hall.</p></div>
+    <div class="card"><h3>FBk &middot; Supr</h3><p><b>FBk</b> is the memory sustain: below unity it fades, near unity it holds, and it never runs away. <b>Supr</b> lets loud new input erase the old content, so you replace a layer by playing over it.</p></div>
+    <div class="card"><h3>Blur &middot; Damp</h3><p><b>Blur</b> opens the feedback from each line feeding itself to a full cross-mix between all four, smearing the taps together. <b>Damp</b> rolls the high end off the tail.</p></div>
+    <div class="card"><h3>Mix</h3><p>The wet level of the whole Drift layer blended back into the master. A parallel ambient wash under the loops, not a replacement for them.</p></div>
+  </div>
+</section>
+
 <section id="sessions">
   <div class="eyebrow">Sessions</div>
   <h2>Save the whole rig</h2>
-  <p>Thirty-two slots on the record button next to Capture. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. Saving over a used slot asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopbox-sessions/</code> and survive reinstalls.</p>
+  <p>Thirty-two slots on the &#8801; (Menu) button. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. Saving over a used slot asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopbox-sessions/</code> and survive reinstalls.</p>
 </section>
 
 <section id="cheat">
@@ -406,7 +419,8 @@
     <tr><td>Jog</td><td>scrub loop · P4: move touched head</td></tr>
     <tr><td>Tracks 1–4</td><td>Input · Perform · Send FX · Settings</td></tr>
     <tr><td>Capture</td><td>Input Tape menu</td></tr>
-    <tr><td>Record (the ● next to Capture)</td><td>Sessions menu</td></tr>
+    <tr><td>Record (●, next to Capture)</td><td>Drift menu</td></tr>
+    <tr><td>Menu (≡)</td><td>Sessions menu</td></tr>
     <tr><td>✕ (Delete)</td><td>tap: run / stop the FX sequencer · hold: pattern view + FX Seq page</td></tr>
     <tr><td>◀ / ▶</td><td>tape brake / wind (held)</td></tr>
     <tr><td>Undo</td><td>revert last overdub, else last clear</td></tr>
