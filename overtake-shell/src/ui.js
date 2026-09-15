@@ -504,13 +504,14 @@ function paintTrackLEDs() { for (let i = 0; i < 4; i++) setButtonLED(ROW_CCS[i],
 /* capacitive knob touch (notes 0-7 = E1-E8): show the param it affects, without changing it */
 function handleKnobTouch(d1) {
     const k = d1; if (k < 0 || k > 7) return;
-    if (menu >= 0 && curMenuDefs()) {
-        const d = curMenuDefs()[k]; if (!d) return; lastKnobLbl = d.lbl;
-        lastKnobVal = d.local ? String(sessSlot) : d.trig ? '(fire)' : (d.opts ? d.opts[Math.round(menuVals[k])] : (d.int ? String(Math.round(menuVals[k])) : Number(menuVals[k]).toFixed(2)));
-    } else if (punchMode && punchActive >= 0) {
+    if (punchMode && punchActive >= 0) {   /* a held punch pad wins: touching a knob opens its params, taking over any menu */
+        if (menu >= 0) { menu = -1; menuPage = 0; punchTookMenu = true; paintTrackLEDs(); paintNav(); }
         if (k < 4) { lastKnobLbl = PUNCH_LFO_LBL[k]; lastKnobVal = punchLfoDisp(k, punchLfo[punchActive][k]); }
         else { const j = k - 4; lastKnobLbl = PUNCH_PARAMS[punchActive][j]; lastKnobVal = punchDisp(punchActive, j, punchVals[punchActive][j]); }
-    } else if (menu < 0 && !punchMode) {
+    } else if (menu >= 0 && curMenuDefs()) {
+        const d = curMenuDefs()[k]; if (!d) return; lastKnobLbl = d.lbl;
+        lastKnobVal = d.local ? String(sessSlot) : d.trig ? '(fire)' : (d.opts ? d.opts[Math.round(menuVals[k])] : (d.int ? String(Math.round(menuVals[k])) : Number(menuVals[k]).toFixed(2)));
+    } else if (menu < 0) {
         const d = PAGES[page()][k]; if (!d) return; lastKnobLbl = d.lbl;
         lastKnobVal = knobInfo(d, k)[1];
     } else return;
