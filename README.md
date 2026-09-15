@@ -13,7 +13,7 @@ and a MIDI-keyboard polyphony layer.
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
 - **Module:** `loopbox` · **Name:** LoopBox · **Abbrev:** LBX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.0 · **Manual:** [online](https://filliformes.github.io/loopbox-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.1 · **Manual:** [online](https://filliformes.github.io/loopbox-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
 
 ---
 
