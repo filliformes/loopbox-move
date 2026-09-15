@@ -93,8 +93,13 @@
   .mv-arrows{grid-column:11/13;grid-row:5;display:flex;align-items:center;justify-content:center;gap:4px;align-self:center}   /* below them on the steps row: left and right around the up/down pair */
   .mv-arrows .ud{display:flex;flex-direction:column;gap:4px}
   .cap{color:var(--faint);font-size:.72rem;text-align:center;margin-top:6px}
-  .callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:16px auto 0;max-width:760px;font-size:.8rem;color:var(--dim)}
-  .callouts div b{color:#fff}
+  .mapgrid{display:grid;grid-template-columns:minmax(190px,1fr) auto minmax(190px,1fr);gap:16px;align-items:start;margin-top:14px}
+  .notes{display:flex;flex-direction:column;gap:12px;font-size:.78rem;line-height:1.45;color:var(--dim)}
+  .notes.l{text-align:right;padding-top:22px}  .notes.r{padding-top:22px}
+  .notes div{border-top:1px solid #232a33;padding-top:6px}
+  .notes.l div{border-right:2px solid #39424e;padding-right:10px;border-top:0}  .notes.r div{border-left:2px solid #39424e;padding-left:10px;border-top:0}
+  .notes b{color:#fff}  .notes .g{color:#cfd6df;font-size:.85rem}
+  @media(max-width:1280px){.mapgrid{grid-template-columns:1fr}.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.notes.l{text-align:left;padding-top:0}.notes.r{padding-top:0}.notes.l div{border-right:0;border-left:2px solid #39424e;padding-right:0;padding-left:10px}}
   .legend{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:14px;font-size:.8rem;color:var(--dim)}
   .legend span{display:inline-flex;align-items:center;gap:6px}
   .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
@@ -190,6 +195,14 @@
 <section id="layout">
   <div class="eyebrow">Hardware map</div>
   <h2>Where everything lives</h2>
+  <div class="mapgrid">
+  <div class="notes l">
+    <div><b>Screen</b>: the page on screen: loop params, a menu, or a held punch effect. <b>8 knobs</b> edit the page.</div>
+    <div><b>Jog wheel</b>: scrub the selected loop, or move a playhead on the Heads page.</div>
+    <div><b class="g">&#8249;</b> Back closes a menu &middot; <b class="g">&#8801;</b> Menu.</div>
+    <div><b>Track buttons</b> (the four colours beside the pads): 1 Input FX &middot; 2 Perform &middot; 3 Send FX &middot; 4 Settings.</div>
+    <div><b class="g">&#9655;</b> Play &middot; <b class="g">&#9675;</b> Record. Right of them: 16 steps select a loop or an FX-seq pattern.</div>
+  </div>
   <div class="movewrap"><div class="move" aria-label="Ableton Move layout as used by LoopBox">
     <div class="mv-top">
       <div class="mv-scr"><div class="ico">&#9684; &#9646;&#9646; &#9680;</div><div class="ttl">LOOPBOX</div></div>
@@ -212,7 +225,7 @@
         <div class="rb sm" title="Right: tape wind">&#9654;</div>
       </div>
     </div>
-    <div class="cap">left 16 pads: loops &middot; right 16 pads: punch FX &middot; 16 steps: select a loop / FX-seq pattern</div>
+    <div class="cap">left 16 pads: loops &middot; right 16 pads: punch FX &middot; 16 steps</div>
     <div class="legend">
       <span><i class="sw" style="background:#3a6fb0"></i>Loops (left pads)</span>
       <span><i class="sw" style="background:var(--blue)"></i>Loop FX</span>
@@ -222,11 +235,14 @@
       <span><i class="sw" style="background:var(--red)"></i>Palette FX</span>
     </div>
   </div></div>
-  <div class="callouts">
-    <div><b>Screen + 8 knobs</b>: the page on screen (loop params, a menu, or a held punch effect). The big knob is master volume.</div>
-    <div><b>Jog wheel</b>: scrub the selected loop, or move a playhead on the Heads page. <b>&#8249;</b> Back closes a menu.</div>
-    <div><b>Track buttons</b> (the four colours beside the pads): 1 Input FX &middot; 2 Perform &middot; 3 Send FX &middot; 4 Settings.</div>
-    <div><b>Right column</b>: &#9974; Input Tape &middot; &#9679; Sessions &middot; &#10226; loop length &middot; M mute &middot; &#10005; FX sequencer &middot; &#10697; clone &middot; &#8617; undo &middot; &#8230; Shift. &#9650;&#9660; page, &#9664;&#9654; tape brake / wind.</div>
+  <div class="notes r">
+    <div><b>Big knob</b>: master volume.</div>
+    <div><b class="g">&#9974;</b> Capture: Input Tape &middot; <b class="g">&#9679;</b> Sample: Sessions.</div>
+    <div><b class="g">&#10226;</b> Loop: loop length &middot; <b class="g">M</b> Mute.</div>
+    <div><b class="g">&#10005;</b> Delete: FX sequencer &middot; <b class="g">&#10697;</b> Copy: clone.</div>
+    <div><b class="g">&#8617;</b> Undo &middot; <b class="g">&#8230;</b> Shift.</div>
+    <div><b class="g">+ &#8722;</b> page up / down &middot; <b class="g">&#9664; &#9654;</b> tape brake / wind.</div>
+  </div>
   </div>
   <div class="grid g2" style="margin-top:22px">
     <div class="card k"><h3>Loop pads (left)</h3><p>Tap to record / play / pause. Double-tap to overdub. Hold to clear. Colour shows state, tinted by playback speed.</p></div>
