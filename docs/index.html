@@ -390,7 +390,7 @@
 <section id="sessions">
   <div class="eyebrow">Sessions</div>
   <h2>Save the whole rig</h2>
-  <p>Thirty-two slots on the &#8801; (Menu) button. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. Saving over a used slot asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopbox-sessions/</code> and survive reinstalls.</p>
+  <p>Sixty-four slots on the &#8801; (Menu) button. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. <b>Del</b> (K4) erases a slot. Saving over a used slot, or deleting one, asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopbox-sessions/</code> and survive reinstalls.</p>
 </section>
 
 <section id="cheat">
@@ -560,7 +560,7 @@ const shots=[
     for(let x=0;x<128;x++){ const e=Math.round(Math.abs(Math.sin(x*0.14))*Math.abs(Math.cos(x*0.05))*20)+1; o+=rect(x,34-e,1,2*e,S.ink); }
     [30,72,104].forEach((x,i)=>{ for(let y=11;y<=56;y+=2) o+=rect(x,y,1,1,S.bg); for(let y=12;y<=56;y+=2) o+=rect(x,y,1,1,S.ink); o+=px4(x-1,58,String(i+1),S.ink); });
     return svg(o); })()},
- {cap:'Sessions: 32 slots named by date and time, saved with the audio.',
+ {cap:'Sessions: 64 slots named by date and time, saved with the audio.',
   svg:knobPage('SESSIONS','SESSION 5',['SLOT','SAVE','LOAD'],[0.15,0,0],['k','b','b'],undefined,[['5*','SEP 15 21:30'],['BACK','EXIT']])},
  {cap:'Perform page 2: master filter, Mood clock and the ducking pump.',
   svg:knobPage('LOOPBOX','PERFORM',['CUT','RESO','FCHAR','CLOCK','CLKMD','CLKAT','PUMP','PMPRT'],[0.7,0.35,'MS-20',0.5,'MUSIC','PRE',0.3,0.4],['k','k','e','k','e','e','k','k'],undefined,[['BACK','EXIT']])},

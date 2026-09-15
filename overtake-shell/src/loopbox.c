@@ -19,7 +19,7 @@
  *   Punch-in FX: 16 pad effects over a 2 s capture ring, up to 4 in series
  *   Perform: Stumble / Jump / Scan; MIDI-keyboard poly layer (off by default)
  *   Master: Lo/Hi cut -> Compressor -> Soft limiter -> Output
- *   Sessions: 32 slots, all disk work on a SCHED_OTHER worker (cores 0-2)
+ *   Sessions: 64 slots, all disk work on a SCHED_OTHER worker (cores 0-2)
  *
  * Overdub modes: Replace / Multiply / Disintegration
  *
@@ -365,7 +365,7 @@ typedef struct {
         atomic_int cloneSrc, cloneDst;                        /* request 3 = clone a loop */
         pthread_t th; int active;
         char stateBuf[16384];
-        char names[33][40];      /* slot names (1-based), filled by the worker; '' = empty */
+        char names[65][40];      /* slot names (1-based), filled by the worker; '' = empty */
     } sio;
     double gFlutBufL[FLUTTER_BUF],gFlutBufR[FLUTTER_BUF];int gFlutWr;double gFlutSweep,gFlutNextMax;
 } loopbox_t;
@@ -378,7 +378,7 @@ static int  get_param(void *inst, const char *key, char *buf, int buf_len);
  * Layout: /data/UserData/schwung/loopbox-sessions/slotN/{state.txt,meta.txt,tKK.raw}
  * (outside the module dir so reinstalls keep sessions — per the Overtake SDK). */
 #define SESS_DIR_BASE "/data/UserData/schwung/loopbox-sessions"
-#define NUM_SLOTS 32
+#define NUM_SLOTS 64
 /* Worker-only: refresh the slot-name cache from disk. */
 static void session_scan_names(loopbox_t *s){
     char path[352];
@@ -493,6 +493,15 @@ static void *session_worker(void *arg){
                     dst->state=VS_PLAYING;
                 }
             }
+            atomic_store(&s->sio.status,3);
+        }
+        else if(req==5){                              /* ---- DELETE a slot (worker: unlink the files) ---- */
+            snprintf(path,sizeof path,"%s/state.txt",dir); remove(path);
+            snprintf(path,sizeof path,"%s/meta.txt",dir);  remove(path);
+            snprintf(path,sizeof path,"%s/name.txt",dir);  remove(path);
+            for(int i=0;i<NUM_VOICES;i++){ snprintf(path,sizeof path,"%s/t%02d.raw",dir,i); remove(path); }
+            rmdir(dir);
+            session_scan_names(s);
             atomic_store(&s->sio.status,3);
         }
         atomic_store(&s->sio.busy,0);
@@ -1993,13 +2002,14 @@ static void set_param(void *inst, const char *key, const char *val) {
     /* Sessions: "session" = "save:N" / "load:N" (N = 1..32). Only sets atomics —
      * the worker does every file operation off the callback. */
     if(strcmp(key,"session")==0){
-        const char *c=strchr(val,':'); int n=c?atoi(c+1):1; if(n<1)n=1; if(n>32)n=32;
+        const char *c=strchr(val,':'); int n=c?atoi(c+1):1; if(n<1)n=1; if(n>NUM_SLOTS)n=NUM_SLOTS;
         if(atomic_load(&s->sio.busy)||!s->sio.active) return;
         atomic_store(&s->sio.slot,n);
         if(strncmp(val,"save",4)==0){
             get_param(s,"state",s->sio.stateBuf,(int)sizeof(s->sio.stateBuf));  /* snapshot settings */
             atomic_store(&s->sio.request,1);
         } else if(strncmp(val,"load",4)==0) atomic_store(&s->sio.request,2);
+        else if(strncmp(val,"delete",6)==0) atomic_store(&s->sio.request,5);
         return; }
     if(strcmp(key,"punch")==0){ const char *c=strchr(val,':'); int n=c?atoi(c+1):-1;
         if(n<0||n>=NUM_PUNCH)return;

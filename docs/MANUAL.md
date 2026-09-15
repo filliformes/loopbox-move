@@ -126,7 +126,7 @@ Knobs 5–8 only follow a pad while it is physically held; latched pads keep run
 | Track 4 | **Settings** | Master Vol | gSat (to 2.0) | Lo Cut (20–1000 Hz) | Hi Cut | Arm Threshold | ODub mode | Root | MIDI |
 | Capture | **Input Tape** | Tape Style | Drive | Wow | Flutter | HF | Lo Cut | Hiss | Generations |
 | Sample | **Drift** | Drift | Rate | Size | FBk | Supr | Blur | Damp | Mix |
-| ≡ (Menu) | **Sessions** | Slot | Save | Load | | | | | |
+| ≡ (Menu) | **Sessions** | Slot | Save | Load | Del | | | | |
 | ✕ (held) | **FX Seq** | Run | Speed | Length | Chance | Gate | Swing | Direction | Clear |
 
 Press the same button again, or **Back**, to close a menu. Enums step once per four detents so a fast turn does not race through the list.
@@ -182,7 +182,7 @@ Hold **Left** and the whole master brakes to a stop in about three seconds; hold
 
 ## 7. Sessions (≡ Menu button)
 
-Thirty-two slots. **Slot** browses (one slot per four detents), **Save** writes, **Load** reads. Saving over a used slot asks first (K8 = yes, K5 = no, Back cancels). Each slot is named by date and time (`Sep 14 21:30` in the footer); the header shows which session is loaded, or **New**. A successful save shows a burst.
+Sixty-four slots. **Slot** browses (one slot per four detents), **Save** writes, **Load** reads, **Del** (K4) erases the slot. Saving over a used slot, or deleting one, asks first (K8 = yes, K5 = no, Back cancels). Each slot is named by date and time (`Sep 14 21:30` in the footer); the header shows which session is loaded, or **New**. A successful save shows a burst.
 
 A session holds every setting, the punch pad values, the FX-sequencer pattern and all recorded audio. Disk work runs on a worker thread pinned to cores 0–2, never on the audio callback. Files live in `/data/UserData/schwung/loopbox-sessions/` and survive reinstalls.
 

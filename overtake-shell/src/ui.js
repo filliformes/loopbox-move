@@ -187,9 +187,10 @@ const MENU_DEFS = [
       { k:'tapeNoise', lo:0, hi:1, lbl:'Hiss' },      { k:'tapeGen', lo:0, hi:1, lbl:'Gen' },
     ],
     [ /* 5 — Sessions (Rec button): slot select + save/load (worker thread does the disk I/O) */
-      { k:'sessSlot', lo:1, hi:32, lbl:'Slot', int:true, local:true },
+      { k:'sessSlot', lo:1, hi:64, lbl:'Slot', int:true, local:true },
       { k:'sessSave', trig:true, lbl:'Save' },
       { k:'sessLoad', trig:true, lbl:'Load' },
+      { k:'sessDelete', trig:true, lbl:'Del' },
     ],
     [ /* 6 — FX Seq (Delete button): one shared 16-step pattern of punch pads (MESS-style) */
       { k:'fxseqRun', opts:['Off','On'], lbl:'Run' },        { k:'fxseqSpeed', opts:['1/32','1/16','1/8T','1/8','1/4','1/2','1'], lbl:'Speed' },
@@ -251,9 +252,9 @@ let sessCurrent = 0;                 /* slot the current session came from / was
 let sessPending = '', sessPendSlot = 0;   /* 'save' / 'load' in flight, and for which slot */
 let savedBurstAt = 0;                /* wall-clock ms of the last successful save (burst animation) */
 const SAVED_BURST_MS = 900;
-const NSLOTS = 32;
+const NSLOTS = 64;
 let sessNames = new Array(NSLOTS + 1).fill('');   /* 1-based; '' = empty slot */
-let confirmSave = false;                          /* overwrite popup pending */
+let confirmSave = false, confirmDelete = false;   /* overwrite / delete popup pending */
 /* '05_20260914_2130' -> 'Sep 14 21:30' so the slot pill + name fit beside BACK in the footer */
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function prettySess(nm) {
@@ -268,6 +269,9 @@ function pollSessNames() {
 }
 function doSessionSave() {
     sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); confirmSave = false; sessPending = 'save'; sessPendSlot = sessSlot;
+}
+function doSessionDelete() {
+    sp('session', 'delete:' + sessSlot); setMsg('Deleting slot ' + sessSlot); confirmDelete = false; sessPending = 'delete'; sessPendSlot = sessSlot;
 }
 let armThreshVal = 0.08;
 let copyHeld = false, loopHeld = false, cloneSrc = -1;
@@ -433,10 +437,13 @@ function reloadMenu() {
     menuReload = false;
 }
 function menuKnob(k, delta) {
-    if (confirmSave || confirmClear) {   /* popup: knob 8 = YES, knob 5 = NO (those cells have no def, so check first) */
+    if (confirmSave || confirmClear || confirmDelete) {   /* popup: knob 8 = YES, knob 5 = NO (those cells have no def, so check first) */
         if (delta === 0) return;
-        if (k === 7) { stampButton(k); if (confirmClear) { confirmClear = false; sp('fxseqClear', '1'); for (let i = 0; i < 16; i++) clearStep(i); setMsg('Pattern cleared'); paintSteps(); } else doSessionSave(); }
-        else if (k === 4) { stampButton(k); confirmSave = false; confirmClear = false; setMsg('cancelled'); }
+        if (k === 7) { stampButton(k);
+            if (confirmClear) { confirmClear = false; sp('fxseqClear', '1'); for (let i = 0; i < 16; i++) clearStep(i); setMsg('Pattern cleared'); paintSteps(); }
+            else if (confirmDelete) { doSessionDelete(); }
+            else doSessionSave(); }
+        else if (k === 4) { stampButton(k); confirmSave = false; confirmClear = false; confirmDelete = false; setMsg('cancelled'); }
         dirty = true; return;
     }
     if (menu === 6 && delStepHeld >= 0 && k >= 4 && stepMirror[delStepHeld].n > 0) {   /* X + step + knobs 5-8: locks of the step's first effect */
@@ -466,6 +473,7 @@ function menuKnob(k, delta) {
                 else doSessionSave();
             }
             else if (d.k === 'sessLoad') { sp('session', 'load:' + sessSlot); setMsg('Loading slot ' + sessSlot); sessPending = 'load'; sessPendSlot = sessSlot; }
+            else if (d.k === 'sessDelete') { if (sessNames[sessSlot]) { confirmDelete = true; setMsg('delete slot ' + sessSlot + '?'); } else setMsg('slot ' + sessSlot + ' empty'); }
             else if (d.k === 'fxseqClear') { confirmClear = true; setMsg('clear pattern?'); }
             else sp(d.k, '1');
             lastKnob = k; lastKnobLbl = d.lbl; lastKnobVal = 'fire';
@@ -1011,9 +1019,9 @@ function drawKnobView() {
     const ctx = screenCtx();
     const inPunch = (menu < 0 && punchMode && punchActive >= 0);
     let defs, title, scope;
-    if (confirmSave || confirmClear) {                       /* confirm popup, drawn as two buttons */
-        drawHeader(ctx, confirmClear ? 'CLEAR FX PATTERN?' : 'OVERWRITE SLOT ' + sessSlot + '?', null, true);
-        if (confirmSave) fontPrint4x5(ctx, 2, 11, caps(prettySess(sessNames[sessSlot] || '')), 1);
+    if (confirmSave || confirmClear || confirmDelete) {      /* confirm popup, drawn as two buttons */
+        drawHeader(ctx, confirmClear ? 'CLEAR FX PATTERN?' : confirmDelete ? 'DELETE SLOT ' + sessSlot + '?' : 'OVERWRITE SLOT ' + sessSlot + '?', null, true);
+        if (confirmSave || confirmDelete) fontPrint4x5(ctx, 2, 11, caps(prettySess(sessNames[sessSlot] || '')), 1);
         drawFooter(ctx, [['K5', 'NO'], ['K8', 'YES']]);
         for (const [i, lbl] of [[4, 'NO'], [7, 'YES']]) {
             const col = i % 4, cellX = col * CELL_W;
@@ -1212,6 +1220,7 @@ globalThis.tick = function () {
                 needReload = true; menuReload = true; pollSessNames();
                 if (sessPending === 'save') { sessCurrent = sessPendSlot; savedBurstAt = now(); setMsg('Saved !'); }
                 else if (sessPending === 'load') { sessCurrent = sessPendSlot; setMsg('Loaded session ' + sessPendSlot); pollSeqMirror(); setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
+                else if (sessPending === 'delete') { if (sessCurrent === sessPendSlot) sessCurrent = 0; setMsg('Deleted slot ' + sessPendSlot); }
                 sessPending = '';
             }
             else if (st === 'Empty') { setMsg('Slot ' + sessPendSlot + ' is empty'); sessPending = ''; }
@@ -1264,7 +1273,7 @@ globalThis.onMidiMessageInternal = function (data) {
     const status = data[0] & 0xf0, d1 = data[1], d2 = data[2];
 
     if (status === 0xb0) {                          /* CC: knobs + buttons */
-        if (d1 === MoveBack && d2 > 0) { if (confirmSave || confirmClear) { confirmSave = false; confirmClear = false; setMsg('cancelled'); dirty = true; return; } if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); dirty = true; return; } clearAllLEDs(); host_exit_module(); return; }
+        if (d1 === MoveBack && d2 > 0) { if (confirmSave || confirmClear || confirmDelete) { confirmSave = false; confirmClear = false; confirmDelete = false; setMsg('cancelled'); dirty = true; return; } if (menu >= 0) { menu = -1; paintTrackLEDs(); paintNav(); dirty = true; return; } clearAllLEDs(); host_exit_module(); return; }
         if (d1 === MoveShift) { shiftHeld = d2 > 0;
             if (shiftHeld) for (const i of physHeld) {          /* Shift while a punch pad is held: latch it as it is, pressure included */
                 if (punchLatched[i]) continue;

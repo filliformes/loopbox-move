@@ -128,7 +128,7 @@ high feedback sustains without runaway.
 - Drift and Mix start at zero (silent until dialled in); ~1.7 MB of memory; saves with the session.
 
 ### Sessions
-**32 numbered slots**, saved and loaded from the **≡ (Menu)** button, each named
+**64 numbered slots**, saved and loaded from the **≡ (Menu)** button, each named
 `slot_YYYYMMDD_HHMM`; saving over a used slot asks for confirmation. Settings *and*
 recorded audio are stored; all disk work runs on a `SCHED_OTHER` worker thread pinned to
 cores 0–2, never on the audio callback. Sessions live in
