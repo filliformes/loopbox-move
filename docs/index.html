@@ -70,29 +70,27 @@
      top row, the body and the bottom row, so every knob sits over a pad column, the
      track bars are rows beside the pads, and Play/Record share the steps row. */
   .movewrap{overflow-x:auto;padding-bottom:4px}
-  .move{--c:78px 18px repeat(8,1fr) 78px;background:linear-gradient(180deg,#1b1f26,#0f1216);border:1px solid #2a3038;border-radius:22px;padding:18px 20px 16px;width:760px;max-width:100%;min-width:640px;margin:14px auto;box-shadow:0 30px 60px rgba(0,0,0,.45)}
+  .move{--c:78px 18px repeat(8,1fr) 34px 34px;background:linear-gradient(180deg,#1b1f26,#0f1216);border:1px solid #2a3038;border-radius:22px;padding:18px 20px 16px;width:760px;max-width:100%;min-width:640px;margin:14px auto;box-shadow:0 30px 60px rgba(0,0,0,.45)}
   .mv-top{display:grid;grid-template-columns:var(--c);gap:6px;align-items:center;margin-bottom:12px}
   .mv-scr{grid-column:1/3;height:44px;border-radius:5px;background:var(--scr);border:1px solid #2a3038;display:flex;flex-direction:column;justify-content:center;padding:4px 8px;color:var(--scrink);font-family:var(--mono)}
   .mv-scr .ico{font-size:.5rem;letter-spacing:.2em;opacity:.6}
   .mv-scr .ttl{font-size:.68rem;letter-spacing:.06em}
   .kn{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 42% 36%,#2f3742,#0c0f13);border:1px solid #39424e;position:relative;justify-self:center}
   .kn::after{content:"";position:absolute;left:50%;top:3px;width:2px;height:8px;margin-left:-1px;background:#c8d0da;border-radius:1px}
-  .kn.big{width:44px;height:44px;grid-column:11}
+  .kn.big{width:44px;height:44px;grid-column:11/13}
   .mv-body{display:grid;grid-template-columns:var(--c);grid-template-rows:repeat(4,auto) auto;gap:6px;align-items:stretch}
-  .mv-left{grid-column:1;grid-row:1/5;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px}
-  .mv-playrec{grid-column:1;grid-row:5;display:flex;justify-content:center;gap:8px;align-self:center}
-  .jog{width:64px;height:64px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#2b323c,#0a0d10);border:1px solid #39424e;box-shadow:inset 0 0 0 6px #14181d}
+  .jog{grid-column:1;grid-row:1/3;justify-self:center;align-self:center;width:64px;height:64px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#2b323c,#0a0d10);border:1px solid #39424e;box-shadow:inset 0 0 0 6px #14181d}
   .rb{width:30px;height:30px;border-radius:50%;background:#1d2229;border:1px solid #39424e;color:#cfd6df;display:grid;place-items:center;font-size:.8rem}
   .rb.sm{width:22px;height:22px;font-size:.6rem}
-  .mv-left .pair{display:flex;gap:8px}
+  .mv-backmenu{grid-column:1;grid-row:3;display:flex;justify-content:center;gap:8px;align-self:center}   /* Back + Menu: beside pad row 3, under the jog */
+  .mv-playrec{grid-column:1;grid-row:5;display:flex;justify-content:center;gap:8px;align-self:center}
   .tb{grid-column:2;width:10px;justify-self:center;align-self:stretch;border-radius:5px;box-shadow:0 0 10px currentColor}   /* same row = same height as its pads */
   .pad{aspect-ratio:1.4/1;border-radius:6px;border:1px solid rgba(255,255,255,.14)}
   .mv-steps{grid-column:3/11;grid-row:5;display:grid;grid-template-columns:repeat(16,1fr);gap:6px;align-self:center}
   .st{aspect-ratio:1/1;border-radius:50%;background:#1a1f26;border:1px solid #39424e}
   .st.on{background:#dfe6ee;border-color:#dfe6ee}
-  .mv-right{grid-column:11;grid-row:1/6;display:grid;grid-template-columns:1fr 1fr;gap:8px;justify-items:center;align-content:start}
-  .mv-right .rb{font-size:.72rem}
-  .mv-arrows{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}   /* left and right around the up/down pair, as on the Move */
+  .rbt{justify-self:center;align-self:center;font-size:.72rem}   /* the eight right buttons: one per pad row, two columns */
+  .mv-arrows{grid-column:11/13;grid-row:5;display:flex;align-items:center;justify-content:center;gap:4px;align-self:center}   /* below them on the steps row: left and right around the up/down pair */
   .mv-arrows .ud{display:flex;flex-direction:column;gap:4px}
   .cap{color:var(--faint);font-size:.72rem;text-align:center;margin-top:6px}
   .callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:16px auto 0;max-width:760px;font-size:.8rem;color:var(--dim)}
@@ -200,22 +198,18 @@
       <div class="kn big" title="Master volume"></div>
     </div>
     <div class="mv-body" id="mvbody">
-      <div class="mv-left">
-        <div class="jog" title="Jog wheel: scrub the loop"></div>
-        <div class="pair"><div class="rb" title="Back">&#8249;</div><div class="rb" title="Menu">&#8801;</div></div>
-      </div>
+      <div class="jog" title="Jog wheel: scrub the loop"></div>
+      <div class="mv-backmenu"><div class="rb" title="Back">&#8249;</div><div class="rb" title="Menu">&#8801;</div></div>
       <div class="mv-playrec"><div class="rb" title="Play">&#9655;</div><div class="rb" title="Record">&#9675;</div></div>
       <div class="mv-steps" id="mvsteps"></div>
-      <div class="mv-right">
-        <div class="rb" title="Capture: Input Tape">&#9974;</div><div class="rb" title="Sample/Record: Sessions">&#9679;</div>
-        <div class="rb" title="Loop: loop length">&#10226;</div><div class="rb" title="Mute">M</div>
-        <div class="rb" title="Delete: FX sequencer">&#10005;</div><div class="rb" title="Copy: clone">&#10697;</div>
-        <div class="rb" title="Undo">&#8617;</div><div class="rb" title="Shift">&#8230;</div>
-        <div class="mv-arrows">
-          <div class="rb sm" title="Left: tape brake">&#9664;</div>
-          <div class="ud"><div class="rb sm" title="Up: previous page">&#9650;</div><div class="rb sm" title="Down: next page">&#9660;</div></div>
-          <div class="rb sm" title="Right: tape wind">&#9654;</div>
-        </div>
+      <div class="rb rbt" style="grid-column:11;grid-row:1" title="Capture: Input Tape">&#9974;</div><div class="rb rbt" style="grid-column:12;grid-row:1" title="Sample/Record: Sessions">&#9679;</div>
+      <div class="rb rbt" style="grid-column:11;grid-row:2" title="Loop: loop length">&#10226;</div><div class="rb rbt" style="grid-column:12;grid-row:2" title="Mute">M</div>
+      <div class="rb rbt" style="grid-column:11;grid-row:3" title="Delete: FX sequencer">&#10005;</div><div class="rb rbt" style="grid-column:12;grid-row:3" title="Copy: clone">&#10697;</div>
+      <div class="rb rbt" style="grid-column:11;grid-row:4" title="Undo">&#8617;</div><div class="rb rbt" style="grid-column:12;grid-row:4" title="Shift">&#8230;</div>
+      <div class="mv-arrows">
+        <div class="rb sm" title="Left: tape brake">&#9664;</div>
+        <div class="ud"><div class="rb sm" title="Up: previous page">+</div><div class="rb sm" title="Down: next page">&#8722;</div></div>
+        <div class="rb sm" title="Right: tape wind">&#9654;</div>
       </div>
     </div>
     <div class="cap">left 16 pads: loops &middot; right 16 pads: punch FX &middot; 16 steps: select a loop / FX-seq pattern</div>
