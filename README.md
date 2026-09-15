@@ -240,8 +240,11 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 - **Palette** — the 24-effect send engine LoopBox embeds. https://github.com/filliformes/palette-move
 - **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
 - **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
-- **Structor** and **Smack** — the Seed slice re-order and several punch-effect ideas.
-  https://github.com/filliformes
+- **Structor** — several punch-effect ideas. https://github.com/filliformes/structor-move
+
+### Other Schwung modules
+- **Smack** — Tim Cox. The Seed slice re-order is modelled on its Seed parameter.
+  https://github.com/timncox/schwung-smack
 
 ### Design inspiration
 - **Polyend MESS** — the FX sequencer: per-step locks, play chance, extensions, gate and swing.
