@@ -874,7 +874,7 @@ function drawEnumSquare(ctx, kx, ky, text, animKey, raw) {
             if (w > ENUM_W) w = ENUM_W;
         }
     }
-    const bx = kx + Math.floor((ENUM_W - w) / 2);
+    const bx = kx + Math.round((KW - w) / 2);   /* centre on the knob axis (kx+KW/2), same column as the label */
     ctx.fillRect(bx, ky, w, 1, 1);
     ctx.fillRect(bx, ky + h - 1, w, 1, 1);
     ctx.fillRect(bx, ky, 1, h, 1);
