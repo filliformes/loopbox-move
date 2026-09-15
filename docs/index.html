@@ -66,18 +66,37 @@
   ol.steps li{counter-increment:s;position:relative;padding:14px 16px 14px 58px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
   ol.steps li::before{content:counter(s);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:8px;background:var(--accent);color:#04120e;font-weight:750;display:grid;place-items:center;font-family:var(--mono)}
   ol.steps b{color:#fff}
-  /* hardware map */
-  .move{background:linear-gradient(180deg,#20252e,#14181e);border:1px solid var(--line);border-radius:20px;padding:20px;max-width:560px;margin:14px auto}
-  .move .row{display:flex;gap:7px;justify-content:center;margin:8px 0}
-  .kn{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#2c333f,#0d1014);border:1px solid #333b47}
-  .scrbar{height:52px;border-radius:8px;background:var(--scr);border:1px solid #123;display:grid;place-items:center;color:var(--scrink);font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;flex:1}
-  .btnrow{display:flex;gap:6px;justify-content:center;margin:10px 0}
-  .mb{flex:1;height:16px;border-radius:5px;background:#232833;border:1px solid #333b47;font-size:.55rem;color:var(--faint);display:grid;place-items:center}
-  .pads{display:flex;gap:16px;justify-content:center;margin-top:12px}
-  .pg{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
-  .pad{width:38px;height:26px;border-radius:6px;border:1px solid rgba(255,255,255,.12);opacity:.92}
+  /* hardware map: proportioned after the Move itself */
+  .movewrap{overflow-x:auto;padding-bottom:4px}
+  .move{background:linear-gradient(180deg,#1b1f26,#0f1216);border:1px solid #2a3038;border-radius:22px;padding:18px 20px 16px;width:760px;max-width:100%;min-width:620px;margin:14px auto;box-shadow:0 30px 60px rgba(0,0,0,.45)}
+  .mv-top{display:grid;grid-template-columns:110px 1fr 46px;align-items:center;gap:14px;margin-bottom:14px}
+  .mv-scr{height:44px;border-radius:5px;background:#050807;border:1px solid #1d2a26;display:flex;flex-direction:column;justify-content:center;padding:4px 8px;color:var(--scrink);font-family:var(--mono)}
+  .mv-scr .ico{font-size:.5rem;letter-spacing:.2em;opacity:.6}
+  .mv-scr .ttl{font-size:.68rem;letter-spacing:.06em}
+  .mv-knobs{display:flex;justify-content:space-between;align-items:center}
+  .kn{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 42% 36%,#2f3742,#0c0f13);border:1px solid #39424e;position:relative}
+  .kn::after{content:"";position:absolute;left:50%;top:3px;width:2px;height:8px;margin-left:-1px;background:#c8d0da;border-radius:1px}
+  .kn.big{width:44px;height:44px}
+  .mv-body{display:grid;grid-template-columns:78px 26px 1fr 78px;gap:12px;align-items:start}
+  .mv-left{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:190px}
+  .jog{width:64px;height:64px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#2b323c,#0a0d10);border:1px solid #39424e;box-shadow:inset 0 0 0 6px #14181d}
+  .rb{width:30px;height:30px;border-radius:50%;background:#1d2229;border:1px solid #39424e;color:#cfd6df;display:grid;place-items:center;font-size:.8rem}
+  .mv-left .pair{display:flex;gap:8px}
+  .mv-left .spacer{flex:1}
+  .mv-tracks{display:grid;grid-template-rows:repeat(4,1fr);gap:8px;padding-top:2px}
+  .tb{width:10px;height:28px;border-radius:5px;box-shadow:0 0 10px currentColor}   /* four bars span the pad grid, as on the Move */
+  .mv-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+  .pad{aspect-ratio:1.4/1;border-radius:6px;border:1px solid rgba(255,255,255,.14)}
+  .mv-steps{display:grid;grid-template-columns:repeat(16,1fr);gap:6px;margin-top:10px}
+  .st{aspect-ratio:1/1;border-radius:50%;background:#1a1f26;border:1px solid #39424e}
+  .st.on{background:#dfe6ee;border-color:#dfe6ee}
+  .mv-right{display:grid;grid-template-columns:1fr 1fr;gap:8px;justify-items:center}
+  .mv-right .rb{font-size:.72rem}
+  .mv-arrows{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px;justify-items:center;margin-top:6px}
   .cap{color:var(--faint);font-size:.72rem;text-align:center;margin-top:6px}
-  .legend{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:16px;font-size:.8rem;color:var(--dim)}
+  .callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:16px auto 0;max-width:760px;font-size:.8rem;color:var(--dim)}
+  .callouts div b{color:#fff}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:14px;font-size:.8rem;color:var(--dim)}
   .legend span{display:inline-flex;align-items:center;gap:6px}
   .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
   /* screen shots */
@@ -142,7 +161,7 @@
 
 <section id="concept">
   <div class="eyebrow">The idea</div>
-  <h2>A looper that plays like an instrument</h2>
+  <h2>A looper you play like an instrument</h2>
   <p class="lede">LoopBox turns Move's pads into sixteen independent tape loops that never have to agree on a length or a downbeat. You layer sound freely, then treat every loop as raw material: re-pitched, re-ordered, filtered, granulated, frozen, with the whole surface live under your hands.</p>
   <div class="grid g3">
     <div class="card"><h3>Free-running</h3><p>Each loop is its own tape. Record one at 3 seconds and another at 40, in different keys, at different speeds. Nothing is quantized to a grid unless you ask.</p></div>
@@ -169,34 +188,58 @@
 <section id="layout">
   <div class="eyebrow">Hardware map</div>
   <h2>Where everything lives</h2>
-  <div class="move">
-    <div class="row">
-      <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
-      <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
+  <div class="movewrap"><div class="move" aria-label="Ableton Move layout as used by LoopBox">
+    <div class="mv-top">
+      <div class="mv-scr"><div class="ico">&#9684; &#9646;&#9646; &#9680;</div><div class="ttl">LOOPBOX</div></div>
+      <div class="mv-knobs">
+        <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
+        <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
+      </div>
+      <div class="kn big" title="Master volume"></div>
     </div>
-    <div class="cap">8 knobs: the page on screen (loop params · menu · punch effect)</div>
-    <div class="row"><div class="scrbar">128 × 64 SCREEN</div></div>
-    <div class="btnrow">
-      <div class="mb">1&nbsp;Input</div><div class="mb">2&nbsp;Perform</div><div class="mb">3&nbsp;Send&nbsp;FX</div><div class="mb">4&nbsp;Settings</div>
-    </div>
-    <div class="cap">track buttons: menus · <b>Capture</b>=Input Tape · <b>Record</b>=Sessions · <b>✕</b>=FX Sequencer</div>
-    <div class="pads">
-      <div>
-        <div class="pg" id="lpads"></div>
-        <div class="cap">LEFT: 16 loops</div>
+    <div class="mv-body">
+      <div class="mv-left">
+        <div class="jog" title="Jog wheel: scrub the loop"></div>
+        <div class="pair"><div class="rb" title="Back">&#8249;</div><div class="rb" title="Menu">&#8801;</div></div>
+        <div class="spacer"></div>
+        <div class="pair"><div class="rb" title="Play">&#9655;</div><div class="rb" title="Record">&#9675;</div></div>
+      </div>
+      <div class="mv-tracks">
+        <div class="tb" style="background:#4aa3ff;color:#4aa3ff" title="Track 1: Input FX"></div>
+        <div class="tb" style="background:#b98bff;color:#b98bff" title="Track 2: Perform"></div>
+        <div class="tb" style="background:#ff7a5b;color:#ff7a5b" title="Track 3: Send FX"></div>
+        <div class="tb" style="background:#4bd47a;color:#4bd47a" title="Track 4: Settings"></div>
       </div>
       <div>
-        <div class="pg" id="rpads"></div>
-        <div class="cap">RIGHT: 16 punch FX</div>
+        <div class="mv-grid" id="mvgrid"></div>
+        <div class="mv-steps" id="mvsteps"></div>
+      </div>
+      <div class="mv-right">
+        <div class="rb" title="Capture: Input Tape">&#9974;</div><div class="rb" title="Sample/Record: Sessions">&#9679;</div>
+        <div class="rb" title="Loop: loop length">&#10226;</div><div class="rb" title="Mute">M</div>
+        <div class="rb" title="Delete: FX sequencer">&#10005;</div><div class="rb" title="Copy: clone">&#10697;</div>
+        <div class="rb" title="Undo">&#8617;</div><div class="rb" title="Shift">&#8230;</div>
+        <div class="mv-arrows">
+          <div class="rb" title="Up: previous page">&#9650;</div><div class="rb" title="Left: tape brake">&#9664;</div>
+          <div class="rb" title="Down: next page">&#9660;</div><div class="rb" title="Right: tape wind">&#9654;</div>
+        </div>
       </div>
     </div>
+    <div class="cap">left 16 pads: loops &middot; right 16 pads: punch FX &middot; 16 steps: select a loop / FX-seq pattern</div>
     <div class="legend">
-      <span><i class="sw" style="background:var(--blue)"></i>Loops</span>
+      <span><i class="sw" style="background:#3a6fb0"></i>Loops (left pads)</span>
+      <span><i class="sw" style="background:var(--blue)"></i>Loop FX</span>
       <span><i class="sw" style="background:var(--pink)"></i>Grains</span>
       <span><i class="sw" style="background:var(--purple)"></i>Pitch</span>
       <span><i class="sw" style="background:var(--yellow)"></i>Time</span>
       <span><i class="sw" style="background:var(--red)"></i>Palette FX</span>
     </div>
+  </div></div>
+  <div class="callouts">
+    <div><b>Screen + 8 knobs</b>: the page on screen (loop params, a menu, or a held punch effect). The big knob is master volume.</div>
+    <div><b>Jog wheel</b>: scrub the selected loop, or move a playhead on the Heads page. <b>&#8249;</b> Back closes a menu.</div>
+    <div><b>Track buttons</b> (the four colours beside the pads): 1 Input FX &middot; 2 Perform &middot; 3 Send FX &middot; 4 Settings.</div>
+    <div><b>Right column</b>: &#9974; Input Tape &middot; &#9679; Sessions &middot; &#10226; loop length &middot; M mute &middot; &#10005; FX sequencer &middot; &#10697; clone &middot; &#8617; undo &middot; &#8230; Shift. &#9650;&#9660; page, &#9664;&#9654; tape brake / wind.</div>
   </div>
   <div class="grid g2" style="margin-top:22px">
     <div class="card k"><h3>Loop pads (left)</h3><p>Tap to record / play / pause. Double-tap to overdub. Hold to clear. Colour shows state, tinted by playback speed.</p></div>
@@ -337,18 +380,21 @@
 </div>
 
 <script>
-/* pad grids in the hardware map */
+/* the Move's 4x8 pad grid: left 16 = loops, right 16 = punch FX (pad 16 / PalFX top-right, like the device) */
 (function(){
-  const L=document.getElementById('lpads'), R=document.getElementById('rpads');
-  const loop=['#2a63a8','#2f7bcf','#4bd47a','#3aa85f']; // just tints for loop states
+  const G=document.getElementById('mvgrid'), ST=document.getElementById('mvsteps');
   const fam=['var(--blue)','var(--blue)','var(--blue)','var(--blue)',
              'var(--pink)','var(--pink)','var(--pink)','var(--pink)',
              'var(--purple)','var(--purple)','var(--purple)','var(--purple)',
              'var(--yellow)','var(--yellow)','var(--yellow)','var(--red)'];
-  const order=[12,13,14,15, 8,9,10,11, 4,5,6,7, 0,1,2,3];   /* top row first: pad 16 (PalFX) sits top-right, like the device */
-  for(const idx of order){const d=document.createElement('div');d.className='pad';
-    d.style.background='linear-gradient(180deg,#2b4c74,#20364f)';d.style.opacity=(0.5+0.5*((idx*7)%16)/16);L.appendChild(d);}
-  for(const idx of order){const d=document.createElement('div');d.className='pad';d.style.background=fam[idx];d.style.opacity=.85;R.appendChild(d);}
+  const rowsTopFirst=[[12,13,14,15],[8,9,10,11],[4,5,6,7],[0,1,2,3]];
+  for(let r=0;r<4;r++){
+    for(let c=0;c<4;c++){ const idx=rowsTopFirst[r][c]; const d=document.createElement('div'); d.className='pad';
+      const on=(idx*7)%16; d.style.background=on<9?'linear-gradient(180deg,#3a6fb0,#24466f)':'linear-gradient(180deg,#232a34,#171c23)'; G.appendChild(d); }
+    for(let c=0;c<4;c++){ const idx=rowsTopFirst[r][c]; const d=document.createElement('div'); d.className='pad';
+      d.style.background=fam[idx]; d.style.opacity=.9; G.appendChild(d); }
+  }
+  for(let i=0;i<16;i++){ const d=document.createElement('div'); d.className='st'+(i===2?' on':''); ST.appendChild(d); }
 })();
 
 /* faithful 128x64 screen reproductions, drawn as scaled SVG (viewBox 0 0 128 64) */
@@ -374,7 +420,7 @@ function knob(cx,cy,val){
          '<line x1="'+cx+'" y1="'+cy+'" x2="'+px.toFixed(1)+'" y2="'+py.toFixed(1)+'" stroke="'+S.ink+'" stroke-width="0.8"/>';
 }
 function enumsq(cx,cy,t){
-  const w=Math.max(14,t.length*4+6), x=cx-w/2, y=cy-5;
+  t=String(t); const w=Math.max(14,t.length*4+6), x=cx-w/2, y=cy-5;
   return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="11" rx="1.5" fill="none" stroke="'+S.ink+'" stroke-width="0.8"/>'+
          '<text x="'+cx+'" y="'+(cy+2)+'" text-anchor="middle" fill="'+S.ink+'" font-family="monospace" font-size="5">'+t+'</text>';
 }
