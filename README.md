@@ -31,7 +31,7 @@ and a MIDI-keyboard polyphony layer.
 Each left pad is an independent, free-running stereo loop (up to 45 s). Record, play, pause
 and overdub live; every loop has its own speed, tone, FX sends, amp envelope and playheads.
 
-- **Overdub modes:** Replace · Multiply (endless layering with decay) · Disintegration
+- **Overdub modes:** Replace · **Multiply** (default; endless layering with decay) · Disintegration
   (the loop's FX are re-applied each pass, so it slowly falls apart).
 - Playback speed is tinted onto the pad LED (blue ½× · green 1× · yellow 2×).
 
@@ -39,7 +39,7 @@ and overdub live; every loop has its own speed, tone, FX sends, amp envelope and
 Every loop can be read by **four independent heads at once**, each with its own mode and
 speed — one recording becomes a canon, a drone, or a ping-ponging texture.
 
-- Modes: **Off · Fwd · Bwd · Ping** (ping-pong).
+- Modes: **Off · Fwd · Bwd · Ping** (ping-pong) **· Jump** (leaps to a random spot at random intervals, crossfaded).
 - Per-head speed (0.25×–4×); heads sum with `1/sqrt(n)` normalisation so stacking stays sane.
 - Turning a head on **always restarts it at the loop start**.
 - Head 1 is the main head — Scatter, Seed, scrub and Jump all drive it.
@@ -123,6 +123,8 @@ high feedback sustains without runaway.
   · **FBk** memory sustain (below unity fades, near unity holds) · **Supr** loud input erases
   old memory (play over to replace) · **Blur** self-feedback → full cross-mix · **Damp** tail
   high-frequency damping · **Mix** wet into the master.
+- **FBk** is capped below unity, so the tail always fades: up to a few minutes at maximum. Leave everything
+  paused and a **silence bleed** clears an abandoned tail after about eight seconds with no input.
 - Drift and Mix start at zero (silent until dialled in); ~1.7 MB of memory; saves with the session.
 
 ### Sessions

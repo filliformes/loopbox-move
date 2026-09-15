@@ -50,7 +50,7 @@ Loops are free-running: they do not need to share a length or a downbeat.
 ### 2.2 Overdub modes (Settings → ODub)
 
 - **Replace** — new audio replaces the old.
-- **Multiply** — endless layering; older passes decay each cycle.
+- **Multiply** — endless layering; older passes decay each cycle. **This is the default.**
 - **Disintegration** — the loop's own effects are baked in on every pass, so it slowly falls apart.
 
 ### 2.3 Undo
@@ -83,7 +83,7 @@ Press a **step** to select that loop: the screen shows its waveform with the act
 
 ### 2.5 Playheads
 
-Every loop can be read by four heads at once. Modes are **Off · Fwd · Bwd · Ping**; speeds run 0.25× to 4× in 0.1-semitone steps. Head 1 is the main head (Scatter, Seed, scrub and Jump drive it). Turning a head on restarts it at the loop start. Heads sum with 1/√n normalisation. Any head that jumps (jog, pitch-shift nudge, scatter) does so through a short crossfade.
+Every loop can be read by four heads at once. Modes are **Off · Fwd · Bwd · Ping · Jump**; speeds run 0.25× to 4× in 0.1-semitone steps. **Jump** plays forward but leaps to a random position at random intervals, each leap crossfaded. Head 1 is the main head (Scatter, Seed and scrub drive it). Turning a head on restarts it at the loop start. Heads sum with 1/√n normalisation. Any head that moves position (jog, pitch-shift nudge, scatter, a Jump leap) does so through a short crossfade.
 
 In the Playheads page, **touch a head's knob and the jog wheel moves that head** along the waveform. Everywhere else the jog **scrubs** the selected loop, tape-style: the head travels for a moment and you hear it, even on a paused loop.
 
@@ -148,7 +148,7 @@ Press the same button again, or **Back**, to close a menu. Enums step once per f
   lush rather than metallic. Size changes glide, so turning Amount morphs the room
   tape-style instead of clicking.
 - **Perform** — Stumble (a probabilistic step glitcher), plus **Jump** (crossfaded random jump on every playing loop) and **Scan** (a fast sweep) as buttons.
-- **Drift** (Sample button) — a global drifting-delay memory in the spirit of Soma COSMOS. Four coprime-length delay lines, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the line lengths are coprime and each has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so the ambient layer picks up the character EQ, glue and limiter. Feedback is tanh-limited, so a high setting sustains without running away. Knobs: **Drift** (how much loop mix is fed in) · **Rate** (tap-drift speed) · **Size** (tap length, shimmer to long hall) · **FBk** (memory sustain, below unity fades, near unity holds) · **Supr** (loud new input erases old memory: play over to replace) · **Blur** (self-feedback → full cross-mix) · **Damp** (high-frequency damping of the tail) · **Mix** (wet level into the master). Drift and Mix start at zero, so it is silent until dialled in; it saves with the session.
+- **Drift** (Sample button) — a global drifting-delay memory in the spirit of Soma COSMOS. Four coprime-length delay lines, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the line lengths are coprime and each has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so the ambient layer picks up the character EQ, glue and limiter. Feedback is capped below unity, so the tail always fades (up to a few minutes at maximum), and a **silence bleed** clears an abandoned tail after about eight seconds with no input. Knobs: **Drift** (how much loop mix is fed in) · **Rate** (tap-drift speed) · **Size** (tap length, shimmer to long hall) · **FBk** (memory sustain, below unity fades, near unity holds) · **Supr** (loud new input erases old memory: play over to replace) · **Blur** (self-feedback → full cross-mix) · **Damp** (high-frequency damping of the tail) · **Mix** (wet level into the master). Drift and Mix start at zero, so it is silent until dialled in; it saves with the session.
 - **MIDI** — off by default so Move's track MIDI cannot trigger loops. On, an external keyboard plays the selected loop chromatically with 8-voice polyphony.
 
 ---

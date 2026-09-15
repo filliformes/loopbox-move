@@ -269,8 +269,8 @@
 <section id="loops">
   <div class="eyebrow">Loops &amp; playheads</div>
   <h2>Sixteen tapes, four heads each</h2>
-  <p>Each loop records up to 45 seconds of stereo audio and plays back on its own clock. Three overdub modes shape how layers build: <b>Replace</b>, <b>Multiply</b> (endless decayed layering), and <b>Disintegration</b> (the loop's own effects re-bake each pass, so it slowly falls apart).</p>
-  <p>Every loop is read by up to <b>four playheads at once</b>, each with a mode: <b>Off · Fwd · Bwd · Ping</b>: and its own speed from 0.25× to 4×. One recording becomes a canon, a drone, or a shifting cloud. Heads sum with equal-power normalisation so stacking never clips, and any head that jumps crossfades.</p>
+  <p>Each loop records up to 45 seconds of stereo audio and plays back on its own clock. Three overdub modes shape how layers build: <b>Replace</b>, <b>Multiply</b> (the default; endless decayed layering), and <b>Disintegration</b> (the loop's own effects re-bake each pass, so it slowly falls apart).</p>
+  <p>Every loop is read by up to <b>four playheads at once</b>, each with a mode: <b>Off · Fwd · Bwd · Ping · Jump</b>: and its own speed from 0.25× to 4×. <b>Jump</b> leaps to a random position at random intervals, crossfaded. One recording becomes a canon, a drone, or a shifting cloud. Heads sum with equal-power normalisation so stacking never clips, and any head that jumps crossfades.</p>
   <h3 id="pages">The four loop pages</h3>
   <p class="muted">Select a loop with a step, then <kbd>Up</kbd>/<kbd>Down</kbd> to move between pages. Speed re-pitches like tape (pitch + tempo together); Pitch shifts independently, leaving tempo alone.</p>
   <div class="scroll"><table>
@@ -378,10 +378,10 @@
 <section id="drift">
   <div class="eyebrow">Drift</div>
   <h2>A memory that never quite repeats</h2>
-  <p class="lede">On the <b>Sample</b> button: a global drifting-delay memory station in the spirit of Soma COSMOS. Four delay lines of coprime length, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the lengths are coprime and every line has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so its ambient layer takes the character EQ, glue and limiter. Feedback is tanh-limited, so a high setting sustains forever without running away. Drift and Mix start at zero, so it stays silent until you dial it in, and it saves with the session.</p>
+  <p class="lede">On the <b>Sample</b> button: a global drifting-delay memory station in the spirit of Soma COSMOS. Four delay lines of coprime length, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the lengths are coprime and every line has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so its ambient layer takes the character EQ, glue and limiter. Feedback is capped below unity, so the tail always fades: up to a few minutes at the top of the range. Leave everything paused and a silence bleed clears an abandoned tail after about eight seconds with no input. Drift and Mix start at zero, so it stays silent until you dial it in, and it saves with the session.</p>
   <div class="grid g2">
     <div class="card"><h3>Drift &middot; Rate &middot; Size</h3><p><b>Drift</b> is how much of the loop mix is written into the memory. <b>Rate</b> is how fast the read taps drift. <b>Size</b> sets the tap length, from a close shimmer to a long hall.</p></div>
-    <div class="card"><h3>FBk &middot; Supr</h3><p><b>FBk</b> is the memory sustain: below unity it fades, near unity it holds, and it never runs away. <b>Supr</b> lets loud new input erase the old content, so you replace a layer by playing over it.</p></div>
+    <div class="card"><h3>FBk &middot; Supr</h3><p><b>FBk</b> is the memory sustain: it is capped below unity so the tail always fades, up to a few minutes at maximum. <b>Supr</b> lets loud new input erase the old content, so you replace a layer by playing over it.</p></div>
     <div class="card"><h3>Blur &middot; Damp</h3><p><b>Blur</b> opens the feedback from each line feeding itself to a full cross-mix between all four, smearing the taps together. <b>Damp</b> rolls the high end off the tail.</p></div>
     <div class="card"><h3>Mix</h3><p>The wet level of the whole Drift layer blended back into the master. A parallel ambient wash under the loops, not a replacement for them.</p></div>
   </div>
