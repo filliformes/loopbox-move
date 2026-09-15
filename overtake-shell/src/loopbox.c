@@ -212,7 +212,7 @@ typedef struct { int mech; double param; } PunchDef;   /* param = division (REPE
 static const PunchDef PUNCH_DEFS[NUM_PUNCH] = {   /* right 4x4, top->bottom, grouped by family */
     {PM_REPEAT,3},{PM_REPEAT,4},{PM_REPEAT,8},{PM_CHOP,0},            /* Loops:  Loop12 Loop16 LoopSh Chop */
     {PM_HAZE,0},{PM_MOSAIC,0},{PM_SMEAR,0},{PM_STRUM,0},              /* Grains: Haze Mosaic Smear Strum */
-    {PM_PITCH,2.0},{PM_PITCH,0.5},{PM_GLIDE,0},{PM_SHIMMER,0},        /* Pitch:  Oct+ Oct- Glide Shimmer */
+    {PM_PITCH,0.5},{PM_PITCH,2.0},{PM_GLIDE,0},{PM_SHIMMER,0},        /* Pitch:  Oct- Oct+ Glide Shimmer */
     {PM_STRETCH,0.5},{PM_STRETCH,1.0},{PM_REVERSE,1.0},{PM_PALETTE,0} /* Time:   Stretch Freeze Reverse Palette */
 };
 /* Chop patterns (from Signal): Patrn knob picks one; steps advance one per slice. */

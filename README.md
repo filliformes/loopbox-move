@@ -83,7 +83,7 @@ The last four are proper reverbs, and the last three come from the standalone in
 ### Punch-in FX (right 16 pads)
 Sixteen momentary effects over a 2-second capture ring, in four families —
 **Loops** (1/12 · 1/16 · short · **Chop**, with eight rhythmic patterns from Signal),
-**Grains** (Haze · Mosaic · Smear · Strum), **Pitch** (Oct+ · Oct− · Glide · Shimmer) and
+**Grains** (Haze · Mosaic · Smear · Strum), **Pitch** (Oct− · Oct+ · Glide · Shimmer) and
 **Time** (Stretch · Freeze · Reverse · **PalFX**, one Palette effect as a punch: FX / Amount /
 Macro / Drift, default Space) — **up to 5 stacked in series**. Slice effects auto-pan in
 sync with their rate, and every slot loudness-matches its wet to the dry it replaces.

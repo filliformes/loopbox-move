@@ -97,7 +97,7 @@ Sixteen momentary effects on the master, reading a 2-second capture ring. Hold a
 |---|---|---|---|
 | **Loops** | Loop12 · Loop16 · LoopSh · **Chop** | Rate · Pitch · Tone · Mix (Chop: Rate · **Pattern** · Tone · Mix) | subdivides the loop continuously (Chop: rate ×2) |
 | **Grains** | Haze · Mosaic · Smear · Strum | Size/Grid/Rate · Pitch/Dir · Density/Var/Tone · Mix | density · grid ×2 · density · faster + wider |
-| **Pitch** | Oct+ · Oct− · Glide · Shimmer | Fine/Len/Regen · Pitch/Glide · Tone · Mix | mix · mix · glide · regen |
+| **Pitch** | Oct− · Oct+ · Glide · Shimmer | Fine/Len/Regen · Pitch/Glide · Tone · Mix | mix · mix · glide · regen |
 | **Time** | Stretch · Freeze · Reverse · **PalFX** | Stretch/Frz/Len · Pitch · Grain/Tone · Mix (PalFX: **FX · Amount · Macro · Drift**) | freeze · freeze · shorter · amount |
 
 - **Chop** repeats the last transient on one of eight rhythmic patterns (Morse bursts, Ikeda burst/silence, pairs, straight eighths, syncopated) chosen with knob 6.

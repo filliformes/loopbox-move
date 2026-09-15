@@ -86,7 +86,7 @@ function now() { return (typeof Date !== 'undefined' && Date.now) ? Date.now() :
 
 /* ---- Punch-in FX (right 16 pads) ---- */
 const PUNCH_NAMES = ['Loop12','Loop16','LoopSh','Chop',   'Haze','Mosaic','Smear','Strum',
-                     'Oct+','Oct-','Glide','Shmr',      'Strch','Freez','Revrse','PalFX'];
+                     'Oct-','Oct+','Glide','Shmr',      'Strch','Freez','Revrse','PalFX'];
 const PUNCH_PAD_COLORS = [AzureBlue,AzureBlue,AzureBlue,AzureBlue, NeonPink,NeonPink,NeonPink,NeonPink,
                           Purple,Purple,Purple,Purple,             VividYellow,VividYellow,VividYellow,BrightRed];
 const PUNCH_PARAMS = [ /* per-effect labels for knobs 5,6,7,8 */
