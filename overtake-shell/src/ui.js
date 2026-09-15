@@ -222,6 +222,13 @@ function parseStepMirror(i, r) {
         m.pads.push(parseInt(kv[0]) || 0); m.locks.push([vals[0] || 0, vals[1] || 0, vals[2] || 0, vals[3] || 0]); m.press.push(vals[4] || 0); }
     m.n = m.pads.length;
 }
+function reloadPunchMirrors() {   /* pull the loaded punch params/LFO back into the UI mirrors */
+    for (let i = 0; i < 16; i++) {
+        const a = gp('pfxq' + i); if (a) { const v = a.split(',').map(Number); if (v.length === 4 && v.every(x => !isNaN(x))) punchVals[i] = v; }
+        const b = gp('pflq' + i); if (b) { const v = b.split(',').map(Number); if (v.length === 4 && v.every(x => !isNaN(x))) punchLfo[i] = v; }
+        punchLatched[i] = false;
+    }
+}
 function pollSeqMirror() { for (let i = 0; i < 16; i++) parseStepMirror(i, gp('fxstep' + i)); seqRun = (gp('fxseqRun') === 'On'); }
 function seqPatternView() { return delHeld || menu === 6; }
 function paintSteps() {                              /* track view, or the pattern while X is held / FX Seq is open */
@@ -268,13 +275,15 @@ function pollSessNames() {
     const parts = String(r).split(';');
     for (let i = 1; i <= NSLOTS; i++) sessNames[i] = parts[i - 1] || '';
 }
+function cancelPopups() { confirmSave = false; confirmClear = false; confirmDelete = false; }
 function doSessionSave() {
-    sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); confirmSave = false; sessPending = 'save'; sessPendSlot = sessSlot;
+    sp('session', 'save:' + sessSlot); setMsg('Saving slot ' + sessSlot); confirmSave = false; sessPending = 'save'; sessPendSlot = sessSlot; sessLast = '';
 }
 function doSessionDelete() {
-    sp('session', 'delete:' + sessSlot); setMsg('Deleting slot ' + sessSlot); confirmDelete = false; sessPending = 'delete'; sessPendSlot = sessSlot;
+    sp('session', 'delete:' + sessSlot); setMsg('Deleting slot ' + sessSlot); confirmDelete = false; sessPending = 'delete'; sessPendSlot = sessSlot; sessLast = '';
 }
 let armThreshVal = 0.08;
+let armChord = false, armJogged = false;   /* Shift+Sample: defer arm to release unless the jog was used */
 let copyHeld = false, loopHeld = false, cloneSrc = -1;
 const armedArr = new Array(NV).fill(false);
 let blinkOn = false, resumeRepaint = 0;
@@ -376,6 +385,7 @@ function paintAll(force) {
 }
 /* Open (or toggle off) a menu by index; 0-3 are the track buttons, 4=Tape, 5=Sessions */
 function openMenu(idx) {
+    cancelPopups();
     if (menu === idx) {
         /* already open: step to the next knob page if this menu has one, else quit */
         if (MENU_PAGED[idx] && menuPage < menuPages() - 1) { menuPage++; menuReload = true; showView('knobs'); }
@@ -473,7 +483,7 @@ function menuKnob(k, delta) {
                 if (sessNames[sessSlot]) { confirmSave = true; setMsg('slot ' + sessSlot + ' exists'); }
                 else doSessionSave();
             }
-            else if (d.k === 'sessLoad') { sp('session', 'load:' + sessSlot); setMsg('Loading slot ' + sessSlot); sessPending = 'load'; sessPendSlot = sessSlot; }
+            else if (d.k === 'sessLoad') { sp('session', 'load:' + sessSlot); setMsg('Loading slot ' + sessSlot); sessPending = 'load'; sessPendSlot = sessSlot; sessLast = ''; }
             else if (d.k === 'sessDelete') { if (sessNames[sessSlot]) { confirmDelete = true; setMsg('delete slot ' + sessSlot + '?'); } else setMsg('slot ' + sessSlot + ' empty'); }
             else if (d.k === 'fxseqClear') { confirmClear = true; setMsg('clear pattern?'); }
             else sp(d.k, '1');
@@ -1215,13 +1225,13 @@ globalThis.tick = function () {
     tickCount++;
     if (needReload) reloadKnobs();
     if (menuReload) reloadMenu();
-    if (menu === 5 && tickCount % 4 === 0) {
+    if ((menu === 5 || sessPending) && tickCount % 4 === 0) {
         const st = gp('sessStatus');
         if (st && st !== sessLast) { sessLast = st;
             if (st === 'OK') {
                 needReload = true; menuReload = true; pollSessNames();
                 if (sessPending === 'save') { sessCurrent = sessPendSlot; savedBurstAt = now(); setMsg('Saved !'); }
-                else if (sessPending === 'load') { sessCurrent = sessPendSlot; setMsg('Loaded session ' + sessPendSlot); pollSeqMirror(); setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
+                else if (sessPending === 'load') { sessCurrent = sessPendSlot; setMsg('Loaded session ' + sessPendSlot); pollSeqMirror(); reloadPunchMirrors(); setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
                 else if (sessPending === 'delete') { if (sessCurrent === sessPendSlot) sessCurrent = 0; setMsg('Deleted slot ' + sessPendSlot); }
                 sessPending = '';
             }
@@ -1287,10 +1297,11 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveMute)  { muteHeld = d2 > 0; paintNav(); return; }     /* Mute modifier (lights the button) */
         if (d1 === MoveCapture && d2 > 0) { openMenu(4); return; }           /* Capture = Tape menu */
         if (d1 === MoveMenu && d2 > 0) { openMenu(5); return; }              /* three-lines = Sessions menu */
-        if (d1 === MoveSample) { sampleHeld = d2 > 0; paintNav(); if (d2 === 0) return; }
+        if (d1 === MoveSample) { sampleHeld = d2 > 0; paintNav();
+            if (d2 === 0) { if (armChord) { if (!armJogged) { spCmd('arm:' + sel); armedArr[sel] = !armedArr[sel];
+                    setMsg('T' + (sel + 1) + (armedArr[sel] ? ' ARMED' : ' disarmed')); enqLED(LEFT_NOTES[sel], padColor(sel)); } armChord = false; } return; } }
         if (d1 === MoveSample  && d2 > 0) {                                  /* Sample/Record button */
-            if (shiftHeld) { spCmd('arm:' + sel); armedArr[sel] = !armedArr[sel];
-                setMsg('T' + (sel + 1) + (armedArr[sel] ? ' ARMED' : ' disarmed')); return; }
+            if (shiftHeld) { armChord = true; armJogged = false; return; }   /* arm decided on release */
             openMenu(7); return;                                             /* Sample button = Drift menu */
         }
         if (d1 === MoveCopy) { copyHeld = d2 > 0; if (!copyHeld) cloneSrc = -1; paintNav(); return; }
@@ -1298,6 +1309,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 === MoveMainKnob) {
             const dv = decodeDelta(d2); if (dv === 0) return;
             if (shiftHeld && sampleHeld) {                                   /* arm threshold */
+                armJogged = true;
                 armThreshVal = clampf(armThreshVal + dv * 0.01, 0, 1);
                 sp('armThresh', armThreshVal.toFixed(4));
                 setMsg('ArmTh ' + armThreshVal.toFixed(2)); return;
@@ -1409,7 +1421,7 @@ globalThis.onMidiMessageInternal = function (data) {
             }
             selectTrack(i);
             pressMs[i] = now();
-            if (shiftHeld) { cycleSpeed(i); return; }   /* Shift+tap = cycle speed */
+            if (shiftHeld) { mutePressed[i] = true; cycleSpeed(i); return; }   /* Shift+tap = cycle speed (not a clear-hold) */
             const t = now(), dbl = (t - lastTapMs[i]) < DOUBLE_TAP_MS;
             lastTapMs[i] = t;
             if (dbl && voiceState[i] >= 2) {            /* double-tap a loop with content = overdub */
@@ -1465,6 +1477,7 @@ globalThis.onMidiMessageInternal = function (data) {
                 padFlash[i] = now() + 130; enqLED(RIGHT_NOTES[i], White);   /* quick LED flash to confirm the reset */
                 setMsg('Reset ' + PUNCH_NAMES[i]); dirty = true; return;
             }
+            if (heldPunch.indexOf(i) < 0 && heldPunch.length >= 5) { setMsg('5 FX max'); return; }   /* series is full */
             pressFrozen[i] = false; padPress[i] = 0; pressMax[i] = 0;   /* a new hold starts with live pressure */
             if (shiftHeld) punchLatched[i] = true;  /* Shift+pad = latch on (stays after release) */
             if (heldPunch.indexOf(i) < 0 && heldPunch.length < 5) heldPunch.push(i);   /* up to 5 in series (NUM_PSLOTS) */
@@ -1492,7 +1505,7 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d1 in NOTE_TO_LEFT) {
             const i = NOTE_TO_LEFT[d1];
             if (mutePressed[i]) { mutePressed[i] = false; return; }   /* release of a Mute+tap — never clears */
-            if (now() - pressMs[i] >= CLEAR_HOLD_MS) {         /* long-press = clear loop */
+            if (pressMs[i] > 0 && now() - pressMs[i] >= CLEAR_HOLD_MS) {   /* long-press = clear loop */
                 spCmd('clear:' + i);
                 voiceState[i] = 0; lastTapMs[i] = 0; mutes[i] = false; lastCleared = i;
                 enqLED(LEFT_NOTES[i], padColor(i));
