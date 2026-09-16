@@ -1560,4 +1560,42 @@ function nextTap(st) {
     switch (st) { case 0: return 1; case 1: return 2; case 2: return 3; case 3: return 2; case 4: return 2; default: return st; }
 }
 
-globalThis.onMidiMessageExternal = function (data) { /* LaunchControl XL — next wave */ };
+/* LaunchControl XL: the two "BlackBox" templates drive all 16 loops.
+ * Continuous CCs (absolute, ch 1): template 1-8 = CC 1..32, template 9-16 = CC 41..72.
+ * Per column (track): top knob = Speed, middle = Filter, bottom = Pan, fader = Volume.
+ * Buttons (note-on): bottom row = tap (rec/play/pause), top row = mute.
+ *   1-8: tap 36..43, mute 68..75 ; 9-16: tap 44..51, mute 76..83.
+ * Both ranges are handled at once, so it works whichever template is loaded. */
+globalThis.onMidiMessageExternal = function (data) {
+    if (!data || data.length < 3) return;
+    let st, d1, d2;
+    if ((data[0] & 0x80) === 0 && data.length >= 4) { st = data[1] & 0xF0; d1 = data[2]; d2 = data[3]; }  /* 4-byte USB-framed */
+    else { st = data[0] & 0xF0; d1 = data[1]; d2 = data[2]; }
+
+    if (st === 0xB0) {                                   /* knobs + faders */
+        let base;
+        if (d1 >= 1 && d1 <= 32) base = 0;               /* loops 1-8 */
+        else if (d1 >= 41 && d1 <= 72) base = 8;         /* loops 9-16 */
+        else return;
+        const rel = (base === 0) ? (d1 - 1) : (d1 - 41);   /* 0..31 */
+        const loop = base + (rel % 8), row = (rel / 8) | 0, norm = d2 / 127;
+        let key, val;
+        if (row === 0)      { key = 'pit'; val = (d2 >= 62 && d2 <= 66) ? 0 : norm * 4 - 2; }  /* Speed, small centre snap to 1x */
+        else if (row === 1) { key = 'fil'; val = norm; }             /* Filter */
+        else if (row === 2) { key = 'pan'; val = norm * 2 - 1; }     /* Pan */
+        else                { key = 'vol'; val = norm; }             /* Volume */
+        sp('v' + loop + '.' + key, val.toFixed(4));
+        return;
+    }
+    if (st === 0x90 && d2 > 0) {                         /* buttons */
+        let loop = -1, mute = false;
+        if      (d1 >= 36 && d1 <= 43) loop = d1 - 36;
+        else if (d1 >= 44 && d1 <= 51) loop = 8 + (d1 - 44);
+        else if (d1 >= 68 && d1 <= 75) { loop = d1 - 68;     mute = true; }
+        else if (d1 >= 76 && d1 <= 83) { loop = 8 + (d1 - 76); mute = true; }
+        else return;
+        if (mute) { mutes[loop] = !mutes[loop]; spCmd('mute:' + loop); enqLED(LEFT_NOTES[loop], padColor(loop)); }
+        else { spCmd('tap:' + loop); voiceState[loop] = nextTap(voiceState[loop]); enqLED(LEFT_NOTES[loop], padColor(loop)); }
+        dirty = true;
+    }
+};
