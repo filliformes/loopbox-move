@@ -292,7 +292,7 @@ typedef struct {
     /* Palette punch (block-processed, 1-block latency like the send buses) */
     float pinL[128],pinR[128],poutL[128],poutR[128];
     /* shimmer 2-head pitch-shift + LP feedback */
-    float shL[SHBUF], shR[SHBUF]; int shW; double shR1, shFbL, shFbR;
+    float shL[SHBUF], shR[SHBUF]; int shW, shFill; double shR1, shFbL, shFbR;
     float dblBuf[1024]; int dblW, dblHold; double dblPh; float dblGain;   /* shared stereo microshifter */
 } PunchSlot;
 
@@ -693,7 +693,7 @@ static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
     else if(d->mech==PM_HAZE||d->mech==PM_STRETCH||d->mech==PM_MOSAIC||d->mech==PM_SMEAR||d->mech==PM_STRUM){
         for(int i=0;i<4;i++)ps->gAct[i]=0; ps->gSched=1e12; ps->gIdx=0; ps->gPrime=1; ps->stGrid=(double)ps->w-4000.0;
         memset(ps->shL,0,sizeof ps->shL); memset(ps->shR,0,sizeof ps->shR); ps->shW=0; ps->shR1=0.0; }   /* clear the Stretch doubler ring */   /* gSched primed: no wait before the first grain */
-    else if(d->mech==PM_SHIMMER){ ps->shR1=2048.0; ps->shFbL=ps->shFbR=0.0;
+    else if(d->mech==PM_SHIMMER){ ps->shR1=2048.0; ps->shFbL=ps->shFbR=0.0; ps->shW=0; ps->shFill=0;
         memset(ps->shL,0,sizeof ps->shL); memset(ps->shR,0,sizeof ps->shR); }   /* stale buffer = burst/click on engage */
 }
 /* Re-tune slice geometry WITHOUT restarting the slot (keeps env + relative phase),
@@ -922,11 +922,13 @@ static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double
         const double W=4096.0;
         ps->shR1+=(1.0-ratio); while(ps->shR1>=W)ps->shR1-=W; while(ps->shR1<0)ps->shR1+=W;
         double d1=ps->shR1, d2=d1+W*0.5; if(d2>=W)d2-=W;
+        double lim=(double)ps->shFill-1.0; if(lim<1.0)lim=1.0;   /* engage: only read what has been written (no zero-seam click) */
+        if(d1>lim)d1=lim; if(d2>lim)d2=lim;
         double w1=0.5-0.5*cos(TWOPI*d1/W), w2=0.5-0.5*cos(TWOPI*d2/W), ws=w1+w2+1e-9;
         double rp1=(double)ps->shW-d1, rp2=(double)ps->shW-d2;
         double l=((double)buf_read(ps->shL,rp1,SHBUF)*w1+(double)buf_read(ps->shL,rp2,SHBUF)*w2)/ws;
         double r=((double)buf_read(ps->shR,rp1,SHBUF)*w1+(double)buf_read(ps->shR,rp2,SHBUF)*w2)/ws;
-        ps->shW++; if(ps->shW>=SHBUF)ps->shW=0;
+        ps->shW++; if(ps->shW>=SHBUF)ps->shW=0; if(ps->shFill<SHBUF)ps->shFill++;
         double fl=l,fr=r; if(toneOn){ fl=bq_L(&ps->toneFilt,fl); fr=bq_R(&ps->toneFilt,fr); }
         ps->shFbL=lb_tanh(fl*regen); ps->shFbR=lb_tanh(fr*regen);   /* each pass climbs another interval: the shimmer */
         punch_doubler(ps,&l,&r);   /* stereo width */
@@ -1871,7 +1873,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         /* Punch-in FX: up to 4 slots in series, each with its own capture ring */
         { double xl=mixL,xr=mixR;
           for(int si=0;si<NUM_PSLOTS;si++){ PunchSlot *ps=&s->pslot[si];
-              if(ps->idx<0){ ps->ringL[ps->w]=(float)mixL; ps->ringR[ps->w]=(float)mixR; }   /* idle: cache dry master */
+              if(ps->idx<0){ ps->ringL[ps->w]=(float)xl; ps->ringR[ps->w]=(float)xr; }   /* idle: cache the chain signal at this slot (no engage boundary) */
               else { int hold=punch_holds_ring(s,ps);
                   if(!hold){ ps->ringL[ps->w]=(float)xl; ps->ringR[ps->w]=(float)xr; }         /* active: capture chain input */
                   double wl,wr; punch_slot_process(s,ps,n,&wl,&wr);
