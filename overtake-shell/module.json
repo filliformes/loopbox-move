@@ -11,6 +11,7 @@
   "description": "16-track live tape looper. Left pads record/play/overdub; knobs shape the selected loop.",
   "capabilities": {
     "audio_in": true,
+    "midi_out": true,
     "suspend_keeps_js": true,
     "button_passthrough": [ 85 ]
   }

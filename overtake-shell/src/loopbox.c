@@ -356,6 +356,8 @@ typedef struct {
     /* Tape menu (Capture button) — modelled on Magneto's Tape page */
     float tapeNoise,tapeDrive,tapeHF,tapeLoCut,tapeWow,tapeFlut,tapeGen;
     int midiIn;              /* 0 = ignore external MIDI (default), 1 = keyboard layer on */
+    int midiOut, midiOutPrev;              /* mirror loop state to a LaunchControl XL's LEDs */
+    uint8_t ledFocusCache[16], ledMuteCache[16];
     float armThresh;         /* threshold-armed record level (0..1) */
     Biquad inEqLo,inEqMid,inEqHi,inTapeLp,inTapeHp;
     double iFlutBufL[FLUTTER_BUF],iFlutBufR[FLUTTER_BUF]; int iFlutWr; double iFlutPhW,iFlutPhF;
@@ -1247,7 +1249,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         dj_filter_update(v);studer_eq_update(v);tilt_eq_update(v);}
     s->globalSat=0.0f;s->masterComp=0.0f;s->masterLoCut=20.0f;s->masterHiCut=20000.0f;s->masterVol=1.0f;
     s->preamp=1.0f;s->overdubMode=1.0f;s->stability=0.0f;s->selTrack=1;s->rng=42;   /* 1 = Clean; overdub 1 = Multiply default */
-    s->midiIn=0;s->armThresh=0.08f;
+    s->midiIn=0;s->midiOut=0;s->midiOutPrev=0;s->armThresh=0.08f;
     s->tapeNoise=0.5f;s->tapeDrive=0.0f;s->tapeHF=1.0f;s->tapeLoCut=0.0f;s->tapeWow=0.0f;s->tapeFlut=0.0f;s->tapeGen=0.0f;
     s->globalWowFlut=0.0f;s->inputMonitor=0.5f;s->inputGain=1.0f;s->gFlutNextMax=0.5;
     bq_reset(&s->masterLo);bq_reset(&s->masterHi);
@@ -1763,6 +1765,24 @@ static inline void drift_sample(loopbox_t *s, double *l, double *r){
     *l = inL + wetL*(double)mix;
     *r = inR + wetR*(double)mix;
 }
+/* LaunchControl XL LED feedback: mirror each loop's transport state to its Track
+ * Focus button (row 1) and its mute to the Track Control button (row 2), for both
+ * templates at once (the controller ignores notes not on its active template).
+ * Sent through the host's external MIDI out; capped at 8 packets/block. */
+static inline void lcxl_leds(loopbox_t *s){
+    if(!g_host||!g_host->midi_send_external) return;
+    if(s->midiOut!=s->midiOutPrev){ for(int i=0;i<16;i++){ s->ledFocusCache[i]=0xFF; s->ledMuteCache[i]=0xFF; } s->midiOutPrev=s->midiOut; }
+    int sent=0;
+    for(int i=0;i<NUM_VOICES && sent<8;i++){
+        uint8_t fc=0, mc=0;
+        if(s->midiOut){ int st=(int)s->voice[i].state;
+            fc = (st==VS_RECORDING)?15 : (st==VS_PLAYING||st==VS_OVERDUBBING)?60 : (st==VS_PAUSED)?62 : 0;   /* red/green/amber */
+            mc = s->voice[i].muted ? 15 : 0; }
+        int fn=(i<8)?(68+i):(76+(i-8)), mn=(i<8)?(36+i):(44+(i-8));
+        if(fc!=s->ledFocusCache[i]){ uint8_t m[4]={0x09,0x90,(uint8_t)fn,fc}; g_host->midi_send_external(m,4); s->ledFocusCache[i]=fc; sent++; }
+        if(mc!=s->ledMuteCache[i]){ uint8_t m[4]={0x09,0x90,(uint8_t)mn,mc}; g_host->midi_send_external(m,4); s->ledMuteCache[i]=mc; sent++; }
+    }
+}
 static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     loopbox_t *s=(loopbox_t*)inst;
     if(frames>128)frames=128; if(frames<0)frames=0;   /* host is fixed at 128; guard the per-block arrays */
@@ -1907,6 +1927,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         out_interleaved_lr[n*2]=(int16_t)lb_clampd(mixL*32767.0,-32767.0,32767.0);
         out_interleaved_lr[n*2+1]=(int16_t)lb_clampd(mixR*32767.0,-32767.0,32767.0);
     }
+    lcxl_leds(s);   /* mirror loop state to the LaunchControl XL LEDs (when MIDI Out is on) */
     /* Process the two Palette send buses over the whole block (result feeds the next block) */
     if(s->busA&&!atomic_load(&s->fxBusy[0])){ pfx_process(s->busA,s->sbufAL,s->sbufAR,frames,s->sendAM1,s->sendAM2,s->sendADrift);
         memcpy(s->sretAL,s->sbufAL,(size_t)frames*sizeof(float)); memcpy(s->sretAR,s->sbufAR,(size_t)frames*sizeof(float)); }
@@ -2110,6 +2131,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("inHigh",inHigh,-1.0,1.0) SETFR("inHighFreq",inHighFreq,0.0,1.0)
     SETFR("tapeNoise",tapeNoise,0.0,1.0) SETFR("tapeDrive",tapeDrive,0.0,1.0) SETFR("tapeHF",tapeHF,0.0,1.0)
     if(strcmp(key,"midiIn")==0){ s->midiIn=(strcmp(val,"On")==0||atof(val)>0.5)?1:0; return; }
+    if(strcmp(key,"midiOut")==0){ s->midiOut=(strcmp(val,"On")==0||atof(val)>0.5)?1:0; return; }
     SETFR("armThresh",armThresh,0.0,1.0)
     if(strcmp(key,"tapeHold")==0){ int h=atoi(val); s->tapeHold=(h<0)?-1:(h>0)?1:0; return; }
     SETFR("tapeLoCut",tapeLoCut,0.0,1.0) SETFR("tapeWow",tapeWow,0.0,1.0) SETFR("tapeFlut",tapeFlut,0.0,1.0) SETFR("tapeGen",tapeGen,0.0,1.0)
@@ -2393,6 +2415,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)
     if(strcmp(key,"midiIn")==0)return snprintf(buf,buf_len,"%s",s->midiIn?"On":"Off");
+    if(strcmp(key,"midiOut")==0)return snprintf(buf,buf_len,"%s",s->midiOut?"On":"Off");
     GETP("armThresh",armThresh)
     GETP("tapeLoCut",tapeLoCut) GETP("tapeWow",tapeWow) GETP("tapeFlut",tapeFlut) GETP("tapeGen",tapeGen)
     if(strcmp(key,"rootNote")==0)return snprintf(buf,buf_len,"%d",s->rootNote);
@@ -2453,7 +2476,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
         WF("inLow",s->inLow);WF("inMid",s->inMid);WF("inMidFreq",s->inMidFreq);
         WF("inHigh",s->inHigh);WF("inHighFreq",s->inHighFreq);
         WF("tapeNoise",s->tapeNoise);WF("tapeDrive",s->tapeDrive);WF("tapeHF",s->tapeHF);
-        WI("midiIn",s->midiIn);WF("armThresh",s->armThresh);WF("tapeLoCut",s->tapeLoCut);WF("tapeWow",s->tapeWow);WF("tapeFlut",s->tapeFlut);WF("tapeGen",s->tapeGen);
+        WI("midiIn",s->midiIn);WI("midiOut",s->midiOut);WF("armThresh",s->armThresh);WF("tapeLoCut",s->tapeLoCut);WF("tapeWow",s->tapeWow);WF("tapeFlut",s->tapeFlut);WF("tapeGen",s->tapeGen);
         /* Master + keyboard */
         WF("masterVol",s->masterVol);WI("rootNote",s->rootNote);WI("inSource",s->inSource);WI("loopFiltMode",s->loopFilterMode);
         WF("driftAmt",s->driftAmt);WF("driftRate",s->driftRate);WF("driftSize",s->driftSize);WF("driftFb",s->driftFb);
