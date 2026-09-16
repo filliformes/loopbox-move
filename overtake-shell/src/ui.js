@@ -508,7 +508,8 @@ function menuKnob(k, delta) {
     } else {
         if (menu === 6) delUsed = true;
         const step = d.step || (d.hi - d.lo) * 0.006;   /* fine + continuous: no stepping on sound controls */
-        const nv = clampf(menuVals[k] + delta * step, d.lo, d.hi);
+        let nv = clampf(menuVals[k] + delta * step, d.lo, d.hi);
+        if (d.k === 'mClock' && (menuVals[k] - 0.5) * (nv - 0.5) < 0) nv = 0.5;   /* catch exact unity (1.00x) when crossing centre */
         menuVals[k] = nv; sp(d.k, nv.toFixed(4)); lastKnobVal = (d.k === 'mClock') ? knobInfo(d, k)[1] : ((d.hi - d.lo > 4) ? String(Math.round(nv)) : nv.toFixed(2));
     }
     lastKnob = k; lastKnobLbl = d.lbl;
@@ -888,7 +889,7 @@ function knobInfo(d, i) {
         const semis = (raw - 0.5) * 48;   /* +-24 st */
         if (clkMusic) { let sn = MCLK_SEMI_UI[0]; for (const v of MCLK_SEMI_UI) if (Math.abs(v - semis) < Math.abs(sn - semis)) sn = v;
             return [isFinite(f) ? f : 0, (sn > 0 ? '+' : '') + sn + 'st']; }
-        return [isFinite(f) ? f : 0, Math.pow(2, semis / 12).toFixed(2) + 'x'];
+        return [isFinite(f) ? f : 0, (Math.abs(semis) < 0.5 ? '1.00' : Math.pow(2, semis / 12).toFixed(2)) + 'x'];
     }
     let t;
     if (d.st)       t = (raw * 12 >= 0 ? '+' : '') + (raw * 12).toFixed(1) + 'st';
