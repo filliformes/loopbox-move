@@ -1771,15 +1771,14 @@ static inline void drift_sample(loopbox_t *s, double *l, double *r){
  * Sent through the host's external MIDI out; capped at 8 packets/block. */
 static inline void lcxl_leds(loopbox_t *s){
     if(!g_host||!g_host->midi_send_external) return;
-    if(s->midiOut!=s->midiOutPrev){ for(int i=0;i<16;i++){ s->ledFocusCache[i]=0xFF; s->ledMuteCache[i]=0xFF; } s->midiOutPrev=s->midiOut; }
+    /* Only the mute row (Track Control, notes 36-51) is driven. The Track Focus
+     * notes (68-83) overlap the Move's own pad LED note space (68-99), so sending
+     * them would light the Move pads themselves -- we leave play-state off. */
+    if(s->midiOut!=s->midiOutPrev){ for(int i=0;i<16;i++) s->ledMuteCache[i]=0xFF; s->midiOutPrev=s->midiOut; }
     int sent=0;
     for(int i=0;i<NUM_VOICES && sent<8;i++){
-        uint8_t fc=0, mc=0;
-        if(s->midiOut){ int st=(int)s->voice[i].state;
-            fc = (st==VS_RECORDING)?15 : (st==VS_PLAYING||st==VS_OVERDUBBING)?60 : (st==VS_PAUSED)?62 : 0;   /* red/green/amber */
-            mc = s->voice[i].muted ? 15 : 0; }
-        int fn=(i<8)?(68+i):(76+(i-8)), mn=(i<8)?(36+i):(44+(i-8));
-        if(fc!=s->ledFocusCache[i]){ uint8_t m[4]={0x09,0x90,(uint8_t)fn,fc}; g_host->midi_send_external(m,4); s->ledFocusCache[i]=fc; sent++; }
+        uint8_t mc = s->midiOut ? (s->voice[i].muted?15:0) : 0;   /* red = muted */
+        int mn=(i<8)?(36+i):(44+(i-8));
         if(mc!=s->ledMuteCache[i]){ uint8_t m[4]={0x09,0x90,(uint8_t)mn,mc}; g_host->midi_send_external(m,4); s->ledMuteCache[i]=mc; sent++; }
     }
 }
