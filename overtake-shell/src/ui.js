@@ -293,6 +293,8 @@ let sampleHeld = false, jogHead = -1;      /* Shift+Sample+jog = arm threshold; 
 let waveStr = '', headsStr = '';
 let waveStart = 0, waveEnd = 1;   /* current loop trim, for the waveform markers */
 let driftMixOn = false;           /* Drift Mix > 0.1 -> the Sample LED glows */
+let clkMusic = true;              /* Master Clock mode: Music (snap) vs Free */
+const MCLK_SEMI_UI = [-24,-19,-17,-12,-7,-5,0,5,7,12,17,19,24];   /* mirrors MCLK_SEMI in the DSP */
 function showView(v) { view = v; viewUntil = now() + VIEW_MS; dirty = true; }
 const LOOP_MULTS = [1.0, 0.5, 0.25, 0.125];
 const loopMultIdx = new Array(NV).fill(0);
@@ -442,7 +444,7 @@ function reloadMenu() {
         if (d.local) { menuVals[i] = sessSlot; continue; }
         if (d.chance) { menuVals[i] = (delStepHeld >= 0) ? stepMirror[delStepHeld].chance : defaultChance; continue; }
         const r = gp(d.k);
-        if (d.opts) { let idx = d.opts.indexOf(r); if (idx < 0) idx = parseInt(r) || 0; menuVals[i] = Math.max(0, Math.min(d.opts.length - 1, idx)); }
+        if (d.opts) { let idx = d.opts.indexOf(r); if (idx < 0) idx = parseInt(r) || 0; menuVals[i] = Math.max(0, Math.min(d.opts.length - 1, idx)); if (d.k === 'mClockMode') clkMusic = (r !== 'Free'); }
         else { const f = parseFloat(r); menuVals[i] = isNaN(f) ? (d.lo || 0) : f; }
     }
     menuReload = false;
@@ -495,6 +497,7 @@ function menuKnob(k, delta) {
         const st = enumSteps(k, delta); if (st === 0) return;
         let idx = Math.max(0, Math.min(d.opts.length - 1, Math.round(menuVals[k]) + st));
         menuVals[k] = idx; sp(d.k, d.opts[idx]); lastKnobVal = d.opts[idx];
+        if (d.k === 'mClockMode') clkMusic = (d.opts[idx] !== 'Free');
         if (d.k === 'fxseqRun') { seqRun = idx === 1; setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
         if (menu === 6) delUsed = true;
     } else if (d.int) {
@@ -506,7 +509,7 @@ function menuKnob(k, delta) {
         if (menu === 6) delUsed = true;
         const step = d.step || (d.hi - d.lo) * 0.006;   /* fine + continuous: no stepping on sound controls */
         const nv = clampf(menuVals[k] + delta * step, d.lo, d.hi);
-        menuVals[k] = nv; sp(d.k, nv.toFixed(4)); lastKnobVal = (d.hi - d.lo > 4) ? String(Math.round(nv)) : nv.toFixed(2);
+        menuVals[k] = nv; sp(d.k, nv.toFixed(4)); lastKnobVal = (d.k === 'mClock') ? knobInfo(d, k)[1] : ((d.hi - d.lo > 4) ? String(Math.round(nv)) : nv.toFixed(2));
     }
     lastKnob = k; lastKnobLbl = d.lbl;
 }
@@ -881,6 +884,12 @@ function knobInfo(d, i) {
     }
     if (d.e2) return [raw > 0.5 ? 1 : 0, d.e2[raw > 0.5 ? 1 : 0]];
     const f = (raw - d.lo) / ((d.hi - d.lo) || 1);
+    if (d.k === 'mClock') {
+        const semis = (raw - 0.5) * 48;   /* +-24 st */
+        if (clkMusic) { let sn = MCLK_SEMI_UI[0]; for (const v of MCLK_SEMI_UI) if (Math.abs(v - semis) < Math.abs(sn - semis)) sn = v;
+            return [isFinite(f) ? f : 0, (sn > 0 ? '+' : '') + sn + 'st']; }
+        return [isFinite(f) ? f : 0, Math.pow(2, semis / 12).toFixed(2) + 'x'];
+    }
     let t;
     if (d.st)       t = (raw * 12 >= 0 ? '+' : '') + (raw * 12).toFixed(1) + 'st';
     else if (d.spd) t = Math.pow(2, raw).toFixed(2) + 'x';
