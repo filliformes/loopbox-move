@@ -543,6 +543,11 @@ function pollStates() {
         const st = s.charCodeAt(i) - 48;
         if (st !== voiceState[i]) { voiceState[i] = st; enqLED(LEFT_NOTES[i], padColor(i)); }
     }
+    const mu = gp('mutes');   /* mute lives in the DSP; keep the UI mirror in sync (pad, LCXL, load) */
+    if (mu && mu.length >= NV) for (let i = 0; i < NV; i++) {
+        const m = mu.charCodeAt(i) === 49;
+        if (m !== mutes[i]) { mutes[i] = m; enqLED(LEFT_NOTES[i], padColor(i)); }
+    }
 }
 
 /* ---- screen ---- */
@@ -1241,7 +1246,7 @@ globalThis.tick = function () {
             if (st === 'OK') {
                 needReload = true; menuReload = true; pollSessNames();
                 if (sessPending === 'save') { sessCurrent = sessPendSlot; savedBurstAt = now(); setMsg('Saved !'); }
-                else if (sessPending === 'load') { sessCurrent = sessPendSlot; setMsg('Loaded session ' + sessPendSlot); pollSeqMirror(); reloadPunchMirrors(); setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
+                else if (sessPending === 'load') { sessCurrent = sessPendSlot; setMsg('Loaded session ' + sessPendSlot); pollSeqMirror(); reloadPunchMirrors(); pollStates(); setButtonLED(MoveDelete, seqRun ? WhiteLedBright : WhiteLedDim, true); }
                 else if (sessPending === 'delete') { if (sessCurrent === sessPendSlot) sessCurrent = 0; setMsg('Deleted slot ' + sessPendSlot); }
                 sessPending = '';
             }

@@ -2373,6 +2373,9 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"states")==0){ int p=0;
         for(int i=0;i<NUM_VOICES&&p<buf_len-1;i++) buf[p++]=(char)('0'+(int)s->voice[i].state);
         buf[p]='\0'; return p; }
+    if(strcmp(key,"mutes")==0){ int p=0;
+        for(int i=0;i<NUM_VOICES&&p<buf_len-1;i++) buf[p++]=(char)('0'+(s->voice[i].muted?1:0));
+        buf[p]='\0'; return p; }
 
     /* Sound generators MUST return ui_hierarchy from get_param */
     if(strcmp(key,"ui_hierarchy")==0){int len=(int)strlen(UI_HIERARCHY_JSON);if(len>=buf_len)return -1;
