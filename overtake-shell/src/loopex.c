@@ -220,6 +220,7 @@ typedef struct {
     int muted;                            /* quick mute: gate output, playhead keeps running */
     int armed;                            /* threshold-armed record: waiting for input to cross */
     Playhead ph[4];                       /* up to 4 simultaneous read heads */
+    float hVol[4], hPan[4];               /* per-head Vol/Pan (heads 1-3; head 0 uses the loop's volume/pan) */
     int scrubTimer; double scrubRate;     /* jog scrub: audible tape rock */
     float filterSm; double volSm, panSm;  /* 10ms smoothing on the steppy knobs */
     int savedLoopLen;                     /* clear-undo: last loop length before a clear */
@@ -536,6 +537,7 @@ static void *session_worker(void *arg){
                     memcpy(dst->bufferR,src->bufferR,(size_t)len*sizeof(int16_t));
                     dst->loopStart=src->loopStart; dst->loopEnd=src->loopEnd; dst->reverse=src->reverse;
                     dst->pitch=src->pitch; dst->filter=src->filter; dst->pan=src->pan; dst->volume=src->volume;
+                    for(int hk=0;hk<4;hk++){ dst->hVol[hk]=src->hVol[hk]; dst->hPan[hk]=src->hPan[hk]; }
                     dst->saturation=src->saturation; dst->wowFlutter=src->wowFlutter;
                     dst->send=src->send; dst->sendB=src->sendB; dst->glitch=src->glitch; dst->scatter=src->scatter;
                     dst->savedLoopLen=len;
@@ -1139,7 +1141,10 @@ static void voice_render(Voice *v, loopex_t *s, int n, double *outL, double *out
         while(hrel<0)hrel+=(double)effLen; while(hrel>=(double)effLen)hrel-=(double)effLen;
         double hbf=1.0; if(hrel<_FD)hbf=hrel/_FD; else if(hrel>(double)effLen-_FD)hbf=((double)effLen-hrel)/_FD;
         if(hbf<0.0)hbf=0.0;
-        rawL+=hl*P->env*hbf; rawR+=hr*P->env*hbf; envSum+=P->env;
+        double hv=(double)v->hVol[k], hp=(double)v->hPan[k];   /* per-head Vol + balance (center = unity, no level change) */
+        double hpl=(hp<=0.0)?1.0:(1.0-hp), hpr=(hp>=0.0)?1.0:(1.0+hp);
+        double hg=P->env*hbf*hv;
+        rawL+=hl*hg*hpl; rawR+=hr*hg*hpr; envSum+=P->env;
         if(playing||scrubbing){ double pr=baseRate*P->mult;
             if(P->mode==2) pr=-pr; else if(P->mode==3) pr*=(double)P->dir;
             P->phase+=pr;
@@ -1286,6 +1291,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         for(int k=0;k<4;k++){ v->ph[k].mode=0; v->ph[k].dir=1; v->ph[k].env=0.0; v->ph[k].phase=0.0; v->ph[k].spdCache=-1.0f; v->ph[k].jumpCd=0; }
         v->ph[0].mode=1; v->ph[0].spd=0.5f; v->ph[0].env=1.0;
         v->ph[1].spd=0.25f; v->ph[2].spd=0.75f; v->ph[3].spd=0.5f;
+        for(int k=0;k<4;k++){ v->hVol[k]=1.0f; v->hPan[k]=0.0f; }   /* per-head Vol unity, Pan center */
         bq_reset(&v->djLpA);bq_reset(&v->djHpA);
         bq_reset(&v->eqLow);bq_reset(&v->eqMid);bq_reset(&v->eqHigh);
         bq_reset(&v->tiltLo);bq_reset(&v->tiltHi);
@@ -2275,6 +2281,8 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETVFR("v_eqPresAmt",eqPresAmt,-1.0,1.0) SETVFR("v_eqTreble",eqTreble,-1.0,1.0)
     SETVFR("v_pitch",pitch,-2.0,2.0) SETVFR("v_filter",filter,0.0,1.0)
     SETVFR("v_pan",pan,-1.0,1.0) SETVFR("v_volume",volume,0.0,1.0) SETVFR("v_decay",decay,0.0,1.0)
+    SETVFR("v_hvol2",hVol[1],0.0,1.0) SETVFR("v_hvol3",hVol[2],0.0,1.0) SETVFR("v_hvol4",hVol[3],0.0,1.0)
+    SETVFR("v_hpan2",hPan[1],-1.0,1.0) SETVFR("v_hpan3",hPan[2],-1.0,1.0) SETVFR("v_hpan4",hPan[3],-1.0,1.0)
     SETVFR("v_atk",ampAtk,0.0,1.0) SETVFR("v_rel",ampRel,0.0,1.0)
     if(strncmp(key,"v_ph",4)==0&&key[4]>='1'&&key[4]<='4'){
         int hi=key[4]-'1'; const char *sub=key+5;
@@ -2325,6 +2333,9 @@ static void set_param(void *inst, const char *key, const char *val) {
                 if(sscanf(val,"%d,%f,%d,%f,%d,%f,%d,%f",&m[0],&sp[0],&m[1],&sp[1],&m[2],&sp[2],&m[3],&sp[3])==8)
                     for(int k=0;k<4;k++){ vr->ph[k].mode=(m[k]<0||m[k]>4)?0:m[k];
                         vr->ph[k].spd=lb_clampf(sp[k],0,1); vr->ph[k].env=(vr->ph[k].mode>0)?1.0:0.0; } }
+            else if(strcmp(sub,"hvp")==0){ float hv[3],hp[3];
+                if(sscanf(val,"%f,%f,%f,%f,%f,%f",&hv[0],&hp[0],&hv[1],&hp[1],&hv[2],&hp[2])==6)
+                    for(int k=0;k<3;k++){ vr->hVol[k+1]=lb_clampf(hv[k],0,1); vr->hPan[k+1]=lb_clampf(hp[k],-1,1); } }
             studer_eq_update(vr);tilt_eq_update(vr);}return;}
 }
 
@@ -2533,6 +2544,8 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     GETVP("v_eqBass",eqBass) GETVP("v_eqPresFrq",eqPresFreq) GETVP("v_eqPresAmt",eqPresAmt)
     GETVP("v_eqTreble",eqTreble) GETVP("v_pitch",pitch) GETVP("v_filter",filter)
     GETVP("v_pan",pan) GETVP("v_volume",volume) GETVP("v_decay",decay)
+    GETVP("v_hvol2",hVol[1]) GETVP("v_hvol3",hVol[2]) GETVP("v_hvol4",hVol[3])
+    GETVP("v_hpan2",hPan[1]) GETVP("v_hpan3",hPan[2]) GETVP("v_hpan4",hPan[3])
     GETVP("v_djReso",djReso) GETVP("v_atk",ampAtk) GETVP("v_rel",ampRel) GETVP("v_comp",comp) GETVP("v_clock",clock)
     if(strncmp(key,"v_ph",4)==0&&key[4]>='1'&&key[4]<='4'){
         int hi=key[4]-'1'; const char *sub=key+5;
@@ -2601,7 +2614,8 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
             APP("v%d.rso=%.4f\nv%d.atk=%.4f\nv%d.rel=%.4f\n",i,(double)vi->djReso,i,(double)vi->ampAtk,i,(double)vi->ampRel);
             APP("v%d.cmp=%.4f\nv%d.pit2=%.4f\n",i,(double)vi->comp,i,(double)vi->clock);
             APP("v%d.sdB=%.4f\nv%d.sct=%.4f\n",i,(double)vi->sendB,i,(double)vi->scatter);
-            APP("v%d.ph=%d,%.4f,%d,%.4f,%d,%.4f,%d,%.4f\n",i,vi->ph[0].mode,(double)vi->ph[0].spd,vi->ph[1].mode,(double)vi->ph[1].spd,vi->ph[2].mode,(double)vi->ph[2].spd,vi->ph[3].mode,(double)vi->ph[3].spd);}
+            APP("v%d.ph=%d,%.4f,%d,%.4f,%d,%.4f,%d,%.4f\n",i,vi->ph[0].mode,(double)vi->ph[0].spd,vi->ph[1].mode,(double)vi->ph[1].spd,vi->ph[2].mode,(double)vi->ph[2].spd,vi->ph[3].mode,(double)vi->ph[3].spd);
+            APP("v%d.hvp=%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",i,(double)vi->hVol[1],(double)vi->hPan[1],(double)vi->hVol[2],(double)vi->hPan[2],(double)vi->hVol[3],(double)vi->hPan[3]);}
         #undef WF
         #undef WI
         return trunc?-1:p;}

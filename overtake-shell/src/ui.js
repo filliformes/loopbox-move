@@ -345,8 +345,14 @@ const PAGE3 = [   /* Loop page 4 — Playheads: mode + speed per head (touch one
     { k: 'v_ph3mode', opts: HEAD_MODES, lbl: 'H3' },  { k: 'v_ph3spd', lo: 0, hi: 1, lbl: 'H3spd', clk: true, step: 0.1 / 48 },
     { k: 'v_ph4mode', opts: HEAD_MODES, lbl: 'H4' },  { k: 'v_ph4spd', lo: 0, hi: 1, lbl: 'H4spd', clk: true, step: 0.1 / 48 },
 ];
-const PAGES = [PAGE0, PAGE1, PAGE2, PAGE3];
-const NPAGES = 4;
+const PAGE4 = [   /* Loop page 5 — Heads Settings: per-head Vol/Pan (H1 mirrors loop page 1's Vol/Pan) */
+    { k: 'v_volume', lo: 0, hi: 1, lbl: 'H1V' },  { k: 'v_pan', lo: -1, hi: 1, lbl: 'H1P' },
+    { k: 'v_hvol2', lo: 0, hi: 1, lbl: 'H2V' },   { k: 'v_hpan2', lo: -1, hi: 1, lbl: 'H2P' },
+    { k: 'v_hvol3', lo: 0, hi: 1, lbl: 'H3V' },   { k: 'v_hpan3', lo: -1, hi: 1, lbl: 'H3P' },
+    { k: 'v_hvol4', lo: 0, hi: 1, lbl: 'H4V' },   { k: 'v_hpan4', lo: -1, hi: 1, lbl: 'H4P' },
+];
+const PAGES = [PAGE0, PAGE1, PAGE2, PAGE3, PAGE4];
+const NPAGES = 5;
 function page() { return loopPage; }
 function setPage(p) { p = p < 0 ? 0 : (p > NPAGES - 1 ? NPAGES - 1 : p); if (p !== loopPage) { loopPage = p; needReload = true; dirty = true; paintNav(); } }
 
@@ -1013,7 +1019,7 @@ function drawFooter(ctx, hints) {
     return drawn;
 }
 /* Full parameter names for the touched header (cells keep the abbreviated label). */
-const PAGE_NAMES = ['Loop', 'Texture', 'Tone', 'Heads'];
+const PAGE_NAMES = ['Loop', 'Texture', 'Tone', 'Heads', 'HeadMix'];
 const FULL_NAMES = {
     v_pitch: 'Speed', v_filter: 'Filter', v_pan: 'Pan', v_volume: 'Volume', v_start: 'Start', v_end: 'End',
     v_reverse: 'Reverse', v_sendA: 'Send A', v_clock: 'Pitch', v_djReso: 'Resonance', v_sat: 'Saturation',
@@ -1022,6 +1028,8 @@ const FULL_NAMES = {
     v_atk: 'Attack', v_rel: 'Release', _heads: 'Playheads',
     v_ph1mode: 'Head 1 Mode', v_ph1spd: 'Head 1 Speed', v_ph2mode: 'Head 2 Mode', v_ph2spd: 'Head 2 Speed',
     v_ph3mode: 'Head 3 Mode', v_ph3spd: 'Head 3 Speed', v_ph4mode: 'Head 4 Mode', v_ph4spd: 'Head 4 Speed',
+    v_hvol2: 'Head 2 Vol', v_hpan2: 'Head 2 Pan', v_hvol3: 'Head 3 Vol', v_hpan3: 'Head 3 Pan',
+    v_hvol4: 'Head 4 Vol', v_hpan4: 'Head 4 Pan',
     inputMonitor: 'Monitor', preamp: 'Tape Style', inputGain: 'Input Gain', inLow: 'Input Low', inMid: 'Input Mid',
     inMidFreq: 'Input Mid Freq', inHigh: 'Input High', inHighFreq: 'Input High Freq',
     sendAType: 'Send A FX', sendAM1: 'Send A Amount', sendAM2: 'Send A Macro', sendADrift: 'Send A Drift',
