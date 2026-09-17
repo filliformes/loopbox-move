@@ -66,6 +66,25 @@ typedef struct {
 } la_in_slot_t;
 typedef struct { volatile uint32_t magic, version; la_in_slot_t slots[LA_IN_SLOTS]; } la_in_shm_t;
 _Static_assert(sizeof(la_in_shm_t)==164228, "la_in_shm_t must match /schwung-link-in (host link_audio.h)");
+
+/* ---- Schwung published stems SHM (/schwung-pub-audio): the host publishes its
+ * OWN audio here (slots 0-3 = the four Schwung mixer slots, 4 = master) as stereo
+ * stems, one SPSC ring per slot, when link_audio_publish is on. This is distinct
+ * from /schwung-link-in (which carries the reconstructed OG Move tracks). Same read
+ * discipline: private cursor, never touch read_pos. Geometry ("BPAL", 12-byte header,
+ * 5 x 8204-byte slots, 4096-int16 stereo ring, write_pos in int16 samples) was
+ * verified live against the running host. */
+#define BPA_SHM_NAME     "/schwung-pub-audio"
+#define BPA_MAGIC        0x4C415042u   /* "BPAL" */
+#define BPA_RING_SAMPLES 4096          /* 2048 stereo frames */
+#define BPA_RING_MASK    (BPA_RING_SAMPLES-1)
+#define BPA_SLOTS        5
+typedef struct {
+    int16_t  ring[BPA_RING_SAMPLES];
+    volatile uint32_t write_pos, read_pos, active;
+} bpa_slot_t;
+typedef struct { volatile uint32_t magic, version, reserved; bpa_slot_t slots[BPA_SLOTS]; } bpa_shm_t;
+_Static_assert(sizeof(bpa_shm_t)==41032, "bpa_shm_t must match /schwung-pub-audio");
 /* pitch_shift.cc — Signalsmith Stretch behind a C API (per-loop Pitch) */
 void *ps_create(float sr, int blockMax, int staggerSamples); void ps_destroy(void *h); void ps_reset(void *h);
 int ps_latency(void *h); void ps_set_semitones(void *h, float semitones); void ps_process(void *h, float *l, float *r, int n);
@@ -323,8 +342,9 @@ typedef struct {
     float globalSat,masterComp,masterLoCut,masterHiCut,masterVol;
     float preamp,overdubMode,stability;int selTrack;
     float globalWowFlut,inputMonitor,inputGain;
-    int inSource;                          /* 0 Line, 1 Master, 2-5 = Link Audio Track 1-4 */
-    la_in_shm_t *laShm; int laFd; uint32_t laRead; int laSlotCur;   /* Link Audio track source */
+    int inSource;                          /* 0 Line, 1 Master, 2-5 = Move Trk1-4, 6-9 = Schwung slot 1-4, 10 = Schwung master */
+    la_in_shm_t *laShm; int laFd; uint32_t laRead; int laSlotCur;   /* Link Audio track source (OG Move tracks) */
+    bpa_shm_t *bpaShm; int bpaFd; uint32_t bpaRead; int bpaSlotCur; /* Schwung published stems source */
     float selfPrevL[128], selfPrevR[128];  /* last block's own output, subtracted when recording the master (feedback guard) */
     double inputPeakL,inputPeakR;
     Voice voice[NUM_VOICES];
@@ -1306,6 +1326,10 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     { int fd=shm_open(LA_IN_SHM_NAME,O_RDONLY,0);   /* map Move's per-track audio if the host is streaming it */
       if(fd>=0){ void *p=mmap(NULL,sizeof(la_in_shm_t),PROT_READ,MAP_SHARED,fd,0);
         if(p!=MAP_FAILED) { s->laShm=(la_in_shm_t*)p; s->laFd=fd; } else close(fd); } }
+    s->bpaShm=NULL; s->bpaFd=-1; s->bpaRead=0; s->bpaSlotCur=-1;
+    { int fd=shm_open(BPA_SHM_NAME,O_RDONLY,0);     /* map Schwung's published stems if link_audio_publish is on */
+      if(fd>=0){ void *p=mmap(NULL,sizeof(bpa_shm_t),PROT_READ,MAP_SHARED,fd,0);
+        if(p!=MAP_FAILED) { s->bpaShm=(bpa_shm_t*)p; s->bpaFd=fd; } else close(fd); } }
     s->sendAType=14;s->sendBType=17;s->sendAM1=0.4f;s->sendAM2=0.5f;s->sendADrift=0.2f;s->sendBM1=0.5f;s->sendBM2=0.5f;s->sendBDrift=0.2f;
     if(s->busA)pfx_select(s->busA,s->sendAType); if(s->busB)pfx_select(s->busB,s->sendBType);
     s->stMix=0.0f;s->stStep=0.3f;s->stOdds=0.5f;s->stSize=0.5f;s->stReach=0.3f;s->stKind=0;s->stStepLeft=1;s->stRng=0x2233aa55u;
@@ -1333,6 +1357,7 @@ static void destroy_instance(void *inst){loopex_t *s=(loopex_t*)inst;if(!s)retur
     for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);ps_destroy(s->voice[i].ps);}
     for(int i=0;i<4;i++){free(s->drL[i]);free(s->drR[i]);}
     if(s->laShm)munmap(s->laShm,sizeof(la_in_shm_t)); if(s->laFd>=0)close(s->laFd);
+    if(s->bpaShm)munmap(s->bpaShm,sizeof(bpa_shm_t)); if(s->bpaFd>=0)close(s->bpaFd);
     if(s->busA)pfx_destroy(s->busA); if(s->busB)pfx_destroy(s->busB); if(s->punchFx)pfx_destroy(s->punchFx);
     free(s->undoL); free(s->undoR); free(s->undoGen); free(s);}
 
@@ -1838,6 +1863,19 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
             if(avail>=need){ laBase=s->laRead; s->laRead+=need; laOn=1; }   /* else starve -> block reads silence */
         }
     }
+    /* Schwung published stems (InSrc Sch1-4 / SchM): read one pub-audio slot with a
+     * private cursor. We gate purely on write_pos advancing (the master stem carries
+     * active=0 yet valid), and never advance past wp, so a stem that stops just goes
+     * silent instead of looping stale samples. */
+    int bpaSlot=(s->inSource>=6&&s->inSource<=10)?(s->inSource-6):-1; uint32_t bpaBase=0; int bpaOn=0;
+    if(bpaSlot>=0 && s->bpaShm && s->bpaShm->magic==BPA_MAGIC){
+        bpa_slot_t *PS=&s->bpaShm->slots[bpaSlot];
+        uint32_t wp=__atomic_load_n(&PS->write_pos,__ATOMIC_ACQUIRE); uint32_t need=(uint32_t)(frames*2);
+        if(s->bpaSlotCur!=bpaSlot){ s->bpaRead=wp-need; s->bpaSlotCur=bpaSlot; }
+        uint32_t avail=wp - s->bpaRead;
+        if(avail > (BPA_RING_SAMPLES-BPA_RING_SAMPLES/4)){ s->bpaRead=wp-need; avail=need; }   /* fell behind -> resync */
+        if(avail>=need){ bpaBase=s->bpaRead; s->bpaRead+=need; bpaOn=1; }
+    }
     int selIdx=s->selTrack-1;
     for(int vi=0;vi<NUM_VOICES;vi++){ Voice *fv=&s->voice[vi];
         fv->filterSm+=(fv->filter-fv->filterSm)*0.25f;      /* ~10ms at 2.9ms/block */
@@ -1871,7 +1909,11 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
           double g=(s->tapeLs+9.0)/3.0; s->tapeGain=(g<0.0)?0.0:(g>1.0)?1.0:g; }   /* the last three octaves fade out */
 
         double inL=0.0,inR=0.0;
-        if(laOn){ double ig=(double)s->inputGain; const int16_t *rg=s->laShm->slots[laSlot].ring;
+        if(bpaOn){ double ig=(double)s->inputGain; const int16_t *rg=s->bpaShm->slots[bpaSlot].ring;
+            uint32_t idx=(bpaBase+(uint32_t)(n*2))&BPA_RING_MASK;
+            inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[idx+1]/32768.0*ig;
+            double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR; }
+        else if(laOn){ double ig=(double)s->inputGain; const int16_t *rg=s->laShm->slots[laSlot].ring;
             uint32_t idx=(laBase+(uint32_t)(n*2))&LA_IN_RING_MASK;
             inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[idx+1]/32768.0*ig;
             double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR; }
@@ -2011,7 +2053,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
 static const char *preamp_opts[]={"Tapeless","Clean","Cass1","Cass2","VHS1","VHS2","Reel15","Reel7","Reel3","4trk","Porta","Dub","Warp"};
 #define NUM_PREAMP 13
 static const char *odmode_opts[]={"Replace","Multiply","Disint"};
-static const char *insrc_opts[]={"Line","Master","Trk1","Trk2","Trk3","Trk4"};
+static const char *insrc_opts[]={"Line","Master","Trk1","Trk2","Trk3","Trk4","Sch1","Sch2","Sch3","Sch4","SchM"};
 static const char *reverse_opts[]={"Normal","Reverse"};
 static const char *stkind_opts[]={"Tumble","Stutter","Reverse","Tape","Gate","Crush"};
 static int match_enum(const char *value, const char **opts, int count){for(int i=0;i<count;i++)if(strcmp(value,opts[i])==0)return i;return -1;}
@@ -2119,7 +2161,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("mClock",mClock,0.0,1.0)
     if(strcmp(key,"mClockMode")==0){ static const char*o[]={"Music","Free"}; int i=match_enum(val,o,2); s->mClockMode=(i>=0)?i:(atof(val)>0.5?1:0); return; }
     if(strcmp(key,"mClockSpot")==0){ static const char*o[]={"Pre","Post"}; int i=match_enum(val,o,2); s->mClockSpot=(i>=0)?i:(atof(val)>0.5?1:0); return; }
-    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,6); s->inSource=(i>=0)?i:(int)lb_clampf((float)atof(val),0,5); return; }
+    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,11); s->inSource=(i>=0)?i:(int)lb_clampf((float)atof(val),0,10); return; }
     SETFR("perfTrem",perfTrem,0.0,1.0) SETFR("perfTremRate",perfTremRate,0.0,1.0) SETFR("punchWidth",punchWidth,0.0,1.0)
     if(strcmp(key,"masterEQ")==0){ int i=match_enum(val,meq_opts,MEQ_N); s->masterEQ=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MEQ_N-1); master_eq_update(s); return; }
     if(strcmp(key,"loopFiltMode")==0){ int i=match_enum(val,mfmode_opts,MF_NVOICE); s->loopFilterMode=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MF_NVOICE-1); return; }
@@ -2458,7 +2500,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"masterLoCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterLoCut);
     if(strcmp(key,"masterHiCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterHiCut);
     GETP("masterVol",masterVol)
-    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,6); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
+    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,11); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
     GETP("stability",stability) GETP("globalWowFlut",globalWowFlut) GETP("inputMonitor",inputMonitor) GETP("inputGain",inputGain)
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)

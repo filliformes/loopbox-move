@@ -175,7 +175,7 @@ const MENU_DEFS = [
       { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },     { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' },
       { k:'loopFiltMode', opts:['Clean','SEM','MS-20','Steiner','Ladder4','Ladder2','Ladder1','Prophet','Oberheim','Diode','K35','Vintage'], lbl:'LpFlt' },
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'inputMonitor', lo:0, hi:1, lbl:'InMon' },
-      { k:'inSource', opts:['Line','Master','Trk1','Trk2','Trk3','Trk4'], lbl:'InSrc' },
+      { k:'inSource', opts:['Line','Master','Trk1','Trk2','Trk3','Trk4','Sch1','Sch2','Sch3','Sch4','SchM'], lbl:'InSrc' },
       { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },  { k:'midiOut', opts:['Off','On'], lbl:'MidiO' },
       { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 },
       { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 }, { k:'punchWidth', lo:0, hi:1, lbl:'PWide' },
