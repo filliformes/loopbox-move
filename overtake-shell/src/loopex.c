@@ -41,8 +41,31 @@
 #include <sched.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 #include "plugin_api_v1.h"
 #include "palette_fx.h"   /* 24-effect Palette engine for the send buses */
+
+/* ---- Link Audio input SHM (/schwung-link-in): the Schwung host's link-subscriber
+ * writes Move's per-track audio here (slots 0-3 = tracks 1-4, 4 = Main), one SPSC
+ * ring per channel. We read with our OWN cursor and never touch read_pos (that is
+ * the shim's). Layout mirrors the host header; magic guards a version mismatch. */
+#define LA_IN_SHM_NAME     "/schwung-link-in"
+#define LA_IN_MAGIC        0x4C41494Eu   /* "LAIN" */
+#define LA_IN_RING_SAMPLES 16384         /* 64 blocks * 128 frames * 2 ch */
+#define LA_IN_RING_MASK    (LA_IN_RING_SAMPLES-1)
+#define LA_IN_SLOTS        5
+typedef struct {
+    int16_t  ring[LA_IN_RING_SAMPLES];
+    volatile uint32_t write_pos, read_pos;
+    volatile int      active;
+    char     name[32];
+    volatile uint32_t starve_count, catchup_count, catchup_samples_dropped, max_avail_seen;
+    volatile uint32_t produced_count, would_overrun_count, max_frames_seen;
+    uint32_t _stats_pad[1];
+} la_in_slot_t;
+typedef struct { volatile uint32_t magic, version; la_in_slot_t slots[LA_IN_SLOTS]; } la_in_shm_t;
+_Static_assert(sizeof(la_in_shm_t)==164228, "la_in_shm_t must match /schwung-link-in (host link_audio.h)");
 /* pitch_shift.cc — Signalsmith Stretch behind a C API (per-loop Pitch) */
 void *ps_create(float sr, int blockMax, int staggerSamples); void ps_destroy(void *h); void ps_reset(void *h);
 int ps_latency(void *h); void ps_set_semitones(void *h, float semitones); void ps_process(void *h, float *l, float *r, int n);
@@ -300,7 +323,8 @@ typedef struct {
     float globalSat,masterComp,masterLoCut,masterHiCut,masterVol;
     float preamp,overdubMode,stability;int selTrack;
     float globalWowFlut,inputMonitor,inputGain;
-    int inSource;                          /* 0 = Line/mic, 1 = Master mix bus */
+    int inSource;                          /* 0 Line, 1 Master, 2-5 = Link Audio Track 1-4 */
+    la_in_shm_t *laShm; int laFd; uint32_t laRead; int laSlotCur;   /* Link Audio track source */
     float selfPrevL[128], selfPrevR[128];  /* last block's own output, subtracted when recording the master (feedback guard) */
     double inputPeakL,inputPeakR;
     Voice voice[NUM_VOICES];
@@ -1278,6 +1302,10 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     s->mfCut=1.0f; s->mfReso=0.0f; s->mfCutSm=1.0f; s->mfResoSm=0.0f; s->mfMode=0; s->mClock=0.5f; s->mClockMode=0; s->mClockSpot=0; s->mclkRatioSm=1.0f; s->mclkWet=0.0f;
     s->perfTrem=0.0f; s->perfTremRate=0.08f; s->punchWidth=0.5f;   /* rate default -> di 0 = one pump per beat */
     s->masterEQ=0; s->masterGlue=0.0f; s->tapeLimit=0.0f; master_eq_update(s); s->inSource=0; s->loopFilterMode=0;
+    s->laShm=NULL; s->laFd=-1; s->laRead=0; s->laSlotCur=-1;
+    { int fd=shm_open(LA_IN_SHM_NAME,O_RDONLY,0);   /* map Move's per-track audio if the host is streaming it */
+      if(fd>=0){ void *p=mmap(NULL,sizeof(la_in_shm_t),PROT_READ,MAP_SHARED,fd,0);
+        if(p!=MAP_FAILED) { s->laShm=(la_in_shm_t*)p; s->laFd=fd; } else close(fd); } }
     s->sendAType=14;s->sendBType=17;s->sendAM1=0.4f;s->sendAM2=0.5f;s->sendADrift=0.2f;s->sendBM1=0.5f;s->sendBM2=0.5f;s->sendBDrift=0.2f;
     if(s->busA)pfx_select(s->busA,s->sendAType); if(s->busB)pfx_select(s->busB,s->sendBType);
     s->stMix=0.0f;s->stStep=0.3f;s->stOdds=0.5f;s->stSize=0.5f;s->stReach=0.3f;s->stKind=0;s->stStepLeft=1;s->stRng=0x2233aa55u;
@@ -1304,6 +1332,7 @@ static void destroy_instance(void *inst){loopex_t *s=(loopex_t*)inst;if(!s)retur
         pthread_join(s->sio.th,NULL); s->sio.active=0; }   /* join BEFORE freeing buffers */
     for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);ps_destroy(s->voice[i].ps);}
     for(int i=0;i<4;i++){free(s->drL[i]);free(s->drR[i]);}
+    if(s->laShm)munmap(s->laShm,sizeof(la_in_shm_t)); if(s->laFd>=0)close(s->laFd);
     if(s->busA)pfx_destroy(s->busA); if(s->busB)pfx_destroy(s->busB); if(s->punchFx)pfx_destroy(s->punchFx);
     free(s->undoL); free(s->undoR); free(s->undoGen); free(s);}
 
@@ -1799,6 +1828,16 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     if(g_host&&g_host->mapped_memory){ micBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_in_offset);
         mixBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_out_offset); }
     int useMaster=(s->inSource==1)&&mixBuf;   /* Settings p2: record the Move mix bus instead of line-in */
+    int laSlot=(s->inSource>=2&&s->inSource<=5)?(s->inSource-2):-1; uint32_t laBase=0; int laOn=0;
+    if(laSlot>=0 && s->laShm && s->laShm->magic==LA_IN_MAGIC){
+        la_in_slot_t *LS=&s->laShm->slots[laSlot];
+        if(LS->active){ uint32_t wp=__atomic_load_n(&LS->write_pos,__ATOMIC_ACQUIRE); uint32_t need=(uint32_t)(frames*2);
+            if(s->laSlotCur!=laSlot){ s->laRead=wp-need; s->laSlotCur=laSlot; }
+            uint32_t avail=wp - s->laRead;
+            if(avail > (LA_IN_RING_SAMPLES-LA_IN_RING_SAMPLES/4)){ s->laRead=wp-need; avail=need; }   /* catch up if the producer runs away */
+            if(avail>=need){ laBase=s->laRead; s->laRead+=need; laOn=1; }   /* else starve -> block reads silence */
+        }
+    }
     int selIdx=s->selTrack-1;
     for(int vi=0;vi<NUM_VOICES;vi++){ Voice *fv=&s->voice[vi];
         fv->filterSm+=(fv->filter-fv->filterSm)*0.25f;      /* ~10ms at 2.9ms/block */
@@ -1832,7 +1871,11 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
           double g=(s->tapeLs+9.0)/3.0; s->tapeGain=(g<0.0)?0.0:(g>1.0)?1.0:g; }   /* the last three octaves fade out */
 
         double inL=0.0,inR=0.0;
-        if(useMaster){ double ig=(double)s->inputGain;
+        if(laOn){ double ig=(double)s->inputGain; const int16_t *rg=s->laShm->slots[laSlot].ring;
+            uint32_t idx=(laBase+(uint32_t)(n*2))&LA_IN_RING_MASK;
+            inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[idx+1]/32768.0*ig;
+            double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR; }
+        else if(useMaster){ double ig=(double)s->inputGain;
             /* Master mix bus minus our own previous-block output, so recording the
              * master captures the other tracks and monitor, not our own loops (no runaway). */
             inL=((double)mixBuf[n*2]/32768.0 - (double)s->selfPrevL[n])*ig;
@@ -1968,7 +2011,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
 static const char *preamp_opts[]={"Tapeless","Clean","Cass1","Cass2","VHS1","VHS2","Reel15","Reel7","Reel3","4trk","Porta","Dub","Warp"};
 #define NUM_PREAMP 13
 static const char *odmode_opts[]={"Replace","Multiply","Disint"};
-static const char *insrc_opts[]={"Line","Master"};
+static const char *insrc_opts[]={"Line","Master","Trk1","Trk2","Trk3","Trk4"};
 static const char *reverse_opts[]={"Normal","Reverse"};
 static const char *stkind_opts[]={"Tumble","Stutter","Reverse","Tape","Gate","Crush"};
 static int match_enum(const char *value, const char **opts, int count){for(int i=0;i<count;i++)if(strcmp(value,opts[i])==0)return i;return -1;}
@@ -2076,7 +2119,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("mClock",mClock,0.0,1.0)
     if(strcmp(key,"mClockMode")==0){ static const char*o[]={"Music","Free"}; int i=match_enum(val,o,2); s->mClockMode=(i>=0)?i:(atof(val)>0.5?1:0); return; }
     if(strcmp(key,"mClockSpot")==0){ static const char*o[]={"Pre","Post"}; int i=match_enum(val,o,2); s->mClockSpot=(i>=0)?i:(atof(val)>0.5?1:0); return; }
-    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,2); s->inSource=(i>=0)?i:(atof(val)>0.5?1:0); return; }
+    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,6); s->inSource=(i>=0)?i:(int)lb_clampf((float)atof(val),0,5); return; }
     SETFR("perfTrem",perfTrem,0.0,1.0) SETFR("perfTremRate",perfTremRate,0.0,1.0) SETFR("punchWidth",punchWidth,0.0,1.0)
     if(strcmp(key,"masterEQ")==0){ int i=match_enum(val,meq_opts,MEQ_N); s->masterEQ=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MEQ_N-1); master_eq_update(s); return; }
     if(strcmp(key,"loopFiltMode")==0){ int i=match_enum(val,mfmode_opts,MF_NVOICE); s->loopFilterMode=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MF_NVOICE-1); return; }
@@ -2415,7 +2458,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"masterLoCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterLoCut);
     if(strcmp(key,"masterHiCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterHiCut);
     GETP("masterVol",masterVol)
-    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,2); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
+    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,6); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
     GETP("stability",stability) GETP("globalWowFlut",globalWowFlut) GETP("inputMonitor",inputMonitor) GETP("inputGain",inputGain)
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)

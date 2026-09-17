@@ -178,7 +178,7 @@ const MENU_DEFS = [
       { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 }, { k:'punchWidth', lo:0, hi:1, lbl:'PWide' },
       { k:'armThresh', lo:0, hi:1, lbl:'ArmTh' },     { k:'overdubMode', opts:['Replace','Multiply','Disint'], lbl:'ODub' },
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },
-      { k:'inSource', opts:['Line','Master'], lbl:'InSrc' },
+      { k:'inSource', opts:['Line','Master','Trk1','Trk2','Trk3','Trk4'], lbl:'InSrc' },
       { k:'loopFiltMode', opts:['Clean','SEM','MS-20','Steiner','Ladder4','Ladder2','Ladder1','Prophet','Oberheim','Diode','K35','Vintage'], lbl:'LpFlt' },
       { k:'midiOut', opts:['Off','On'], lbl:'MidiO' },
     ],

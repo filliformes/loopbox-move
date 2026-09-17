@@ -34,7 +34,7 @@ CID=$(MSYS_NO_PATHCONV=1 docker create -w /build "$IMAGE" bash -c '
   aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -std=c++11 -fno-exceptions -fno-rtti \
       -Isrc -Ivendor/signalsmith/include -Ivendor/signalsmith-stretch -c src/pitch_shift.cc -o obj/pitch_shift.o
   aarch64-linux-gnu-g++ -shared -o dist/loopex/dsp.so \
-      obj/loopex.o obj/palette_fx.o obj/warps_data.o obj/fx_clouds.o obj/pitch_shift.o -lm -lpthread
+      obj/loopex.o obj/palette_fx.o obj/warps_data.o obj/fx_clouds.o obj/pitch_shift.o -lm -lpthread -lrt
   echo BUILD_OK
 ')
 docker cp "$WROOT/src" "$CID:/build/src"
