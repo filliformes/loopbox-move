@@ -1,4 +1,4 @@
-# LoopBox Manual
+# Loopex Manual
 
 *16-track stereo tape looper for Ableton Move (Schwung Overtake module) — v0.6*
 
@@ -185,7 +185,7 @@ Hold **Left** and the whole master brakes to a stop in about three seconds; hold
 
 Sixty-four slots. **Slot** browses (one slot per four detents), **Save** writes, **Load** reads, **Del** (K4) erases the slot. Saving over a used slot, or deleting one, asks first (K8 = yes, K5 = no, Back cancels). Each slot is named by date and time (`Sep 14 21:30` in the footer); the header shows which session is loaded, or **New**. A successful save shows a burst.
 
-A session holds every setting, the punch pad values, the FX-sequencer pattern and all recorded audio. Disk work runs on a worker thread pinned to cores 0–2, never on the audio callback. Files live in `/data/UserData/schwung/loopbox-sessions/` and survive reinstalls.
+A session holds every setting, the punch pad values, the FX-sequencer pattern and all recorded audio. Disk work runs on a worker thread pinned to cores 0–2, never on the audio callback. Files live in `/data/UserData/schwung/loopex-sessions/` and survive reinstalls.
 
 ---
 

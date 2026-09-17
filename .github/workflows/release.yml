@@ -30,14 +30,14 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          # tarball must extract to loopbox/ containing module.json
-          tar -czf dist/loopbox-module.tar.gz -C overtake-shell/dist loopbox
-          tar -tzf dist/loopbox-module.tar.gz
+          # tarball must extract to loopex/ containing module.json
+          tar -czf dist/loopex-module.tar.gz -C overtake-shell/dist loopex
+          tar -tzf dist/loopex-module.tar.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/loopbox-module.tar.gz
+          files: dist/loopex-module.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -45,7 +45,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           REPO="${{ github.repository }}"
-          URL="https://github.com/$REPO/releases/download/v$VERSION/loopbox-module.tar.gz"
+          URL="https://github.com/$REPO/releases/download/v$VERSION/loopex-module.tar.gz"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # tag builds are detached HEAD: land on the default branch BEFORE writing

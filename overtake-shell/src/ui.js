@@ -1,5 +1,5 @@
 /*
- * LoopBox - Overtake UI (QuickJS). Drives the loopbox.c engine via string params.
+ * Loopex - Overtake UI (QuickJS). Drives the loopex.c engine via string params.
  *
  * Left 16 pads   = loop tracks: tap cycles Empty->Rec->Play<->Pause; double-tap
  *                  = Overdub; hold = clear (Undo restores). Mute/Copy/Loop/Shift
@@ -25,7 +25,7 @@ import {
 
 import { setLED, setButtonLED, decodeDelta }
     from '/data/UserData/schwung/shared/input_filter.mjs';
-/* Schwung's own render primitives, imported so LoopBox draws the SAME widgets
+/* Schwung's own render primitives, imported so Loopex draws the SAME widgets
  * as every other module. These fonts and frame_ctx have no imports of their
  * own; render_page_movy.mjs is not imported because it drags in viz*.mjs. */
 import { frameCtx } from '/data/UserData/schwung/shared/param_pages/frame_ctx.mjs';
@@ -667,7 +667,7 @@ function stampButton(k) {
 
 /* ================================================================
  * Labels + enum squares, ported verbatim from Schwung's
- * render_page_movy.mjs / render_page.mjs so LoopBox cells match the
+ * render_page_movy.mjs / render_page.mjs so Loopex cells match the
  * host's cells pixel for pixel.
  * ================================================================ */
 const LABEL_CHARS = 5;
@@ -1062,7 +1062,7 @@ function drawKnobView() {
     if (menu === 6)     { defs = MENU_DEFS[6]; title = 'FX Seq'; pageName = seqRun ? 'Running' : 'Stopped'; scope = 'm6';
                           footer = (delStepHeld >= 0) ? [[String(delStepHeld + 1), stepMirror[delStepHeld].n ? stepMirror[delStepHeld].pads.map(x => PUNCH_NAMES[x]).join('+') : 'empty']]
                                                       : [['X+Pad+Step', 'Write'], ['X', 'Run']]; }
-    else if (menu >= 0) { defs = curMenuDefs(); title = (menu === 5) ? 'Sessions' : 'LoopBox';
+    else if (menu >= 0) { defs = curMenuDefs(); title = (menu === 5) ? 'Sessions' : 'Loopex';
                           pageName = (menu === 5) ? (sessCurrent > 0 ? 'Session ' + sessCurrent : 'New') : MENU_NAMES[menu]; scope = 'm' + menu;
                           footer = (menu === 5) ? [[String(sessSlot) + (sessSlot === sessCurrent ? '*' : ''), sessNames[sessSlot] ? prettySess(sessNames[sessSlot]) : 'empty'], ['Back', 'Exit']] : [['Back', 'Exit']]; }
     else if (inPunch)   { defs = null; title = 'Punch'; pageName = PUNCH_NAMES[punchActive]; scope = 'p' + punchActive;

@@ -1,5 +1,5 @@
 /*
- * loopbox.c — LoopBox for Ableton Move (Schwung Overtake module)
+ * loopex.c — Loopex for Ableton Move (Schwung Overtake module)
  *
  * 16-track asynchronous STEREO tape looper.
  * Inspired by: 1010music BlackBox, Kinotone Ribbons, Puremagnetik LAPS,
@@ -373,19 +373,19 @@ typedef struct {
         char names[65][40];      /* slot names (1-based), filled by the worker; '' = empty */
     } sio;
     double gFlutBufL[FLUTTER_BUF],gFlutBufR[FLUTTER_BUF];int gFlutWr;double gFlutSweep,gFlutNextMax;
-} loopbox_t;
+} loopex_t;
 
 static void set_param(void *inst, const char *key, const char *val);
-static void master_eq_update(loopbox_t *s);   /* master character EQ (defined near render) */
+static void master_eq_update(loopex_t *s);   /* master character EQ (defined near render) */
 static int  get_param(void *inst, const char *key, char *buf, int buf_len);
 
 /* ---- Session store: settings blob + raw int16 loop buffers, 8 numbered slots ----
- * Layout: /data/UserData/schwung/loopbox-sessions/slotN/{state.txt,meta.txt,tKK.raw}
+ * Layout: /data/UserData/schwung/loopex-sessions/slotN/{state.txt,meta.txt,tKK.raw}
  * (outside the module dir so reinstalls keep sessions — per the Overtake SDK). */
-#define SESS_DIR_BASE "/data/UserData/schwung/loopbox-sessions"
+#define SESS_DIR_BASE "/data/UserData/schwung/loopex-sessions"
 #define NUM_SLOTS 64
 /* Worker-only: refresh the slot-name cache from disk. */
-static void session_scan_names(loopbox_t *s){
+static void session_scan_names(loopex_t *s){
     char path[352];
     for(int n=1;n<=NUM_SLOTS;n++){ s->sio.names[n][0]=0;
         snprintf(path,sizeof path,"%s/slot%d/name.txt",SESS_DIR_BASE,n);
@@ -398,7 +398,7 @@ static void session_scan_names(loopbox_t *s){
 }
 static void voice_disintegrate_pass(Voice *v);   /* fwd: worker runs it off-callback */
 static void *session_worker(void *arg){
-    loopbox_t *s=(loopbox_t*)arg;
+    loopex_t *s=(loopex_t*)arg;
     char dir[256],path[352];
     while(1){
         while(!atomic_load(&s->sio.request)&&!atomic_load(&s->sio.cancel)&&!atomic_load(&s->undoReq)&&!atomic_load(&s->disintReq)
@@ -582,7 +582,7 @@ static inline void voice_wowflutter_stereo(Voice *v, double *l, double *r, doubl
 }
 
 /* ---- Master Wow/Flutter (global tape wobble) ---- */
-static inline void master_wowflutter_stereo(loopbox_t *s, double *l, double *r, double amt) {
+static inline void master_wowflutter_stereo(loopex_t *s, double *l, double *r, double amt) {
     if(amt<0.005)return;int wr=s->gFlutWr;s->gFlutBufL[wr]=*l;s->gFlutBufR[wr]=*r;
     double depth=amt*amt*40.0,freq=0.02*amt*amt*amt;
     double offset=depth+depth*sin(s->gFlutSweep);s->gFlutSweep+=s->gFlutNextMax*freq;
@@ -670,7 +670,7 @@ static double punch_slice_len(const PunchDef *d, const float *P, double beat){
     return sl;
 }
 /* Start a slot on effect idx, using that effect's stored params (s->punchParams[idx]). */
-static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
+static void punch_slot_start(loopex_t *s, PunchSlot *ps, int idx){
     ps->idx=idx; ps->env=0.0; ps->releasing=0; ps->restartPend=0; const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
     memcpy(ps->pSm,P,sizeof ps->pSm);   /* no glide on engage: start at the pad's values */
     ps->elCur=0.0; ps->sliceStartT=-1.0; ps->pressSm=0.0; ps->dPow=ps->wPow=0.0; ps->mkGain=1.0;
@@ -700,7 +700,7 @@ static void punch_slot_start(loopbox_t *s, PunchSlot *ps, int idx){
 }
 /* Re-tune slice geometry WITHOUT restarting the slot (keeps env + relative phase),
  * so turning Rate on a held effect no longer re-triggers it and clicks. */
-static void punch_slot_retune(loopbox_t *s, PunchSlot *ps, int idx){
+static void punch_slot_retune(loopex_t *s, PunchSlot *ps, int idx){
     const PunchDef *d=&PUNCH_DEFS[idx]; float *P=s->punchParams[idx];
     if(d->mech!=PM_REPEAT&&d->mech!=PM_REVERSE&&d->mech!=PM_GLIDE&&d->mech!=PM_CHOP) return;
     double sl=punch_slice_len(d,P,punch_beat());
@@ -710,31 +710,31 @@ static void punch_slot_retune(loopbox_t *s, PunchSlot *ps, int idx){
 }
 /* Slice mechs and a frozen Stretch read a snapshot: the ring stops writing while they
  * hold, so a loop held longer than the 2 s ring is never overwritten under the head. */
-static inline int punch_holds_ring(const loopbox_t *s, const PunchSlot *ps){
+static inline int punch_holds_ring(const loopex_t *s, const PunchSlot *ps){
     if(ps->idx<0||ps->releasing) return 0;
     int m=PUNCH_DEFS[ps->idx].mech;
     if(m==PM_REPEAT||m==PM_REVERSE||m==PM_GLIDE||m==PM_CHOP) return 1;
     if(m==PM_STRETCH){ const float *P=s->punchParams[ps->idx]; return ((1.0-(double)P[0])*(1.0-ps->pressSm))<0.02; }
     return 0;
 }
-static void punch_on(loopbox_t *s, int idx){
+static void punch_on(loopex_t *s, int idx){
     if(idx<0||idx>=NUM_PUNCH)return;
     for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx){ PunchSlot *ps=&s->pslot[i];   /* retrigger (also un-releases) */
         if(ps->releasing||ps->env<0.05){ punch_slot_start(s,ps,idx); } else ps->restartPend=1;   /* running: fade down first, restart in render */
         return; }
     for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx<0){ punch_slot_start(s,&s->pslot[i],idx); return; }      /* first free */
 }
-static void punch_off(loopbox_t *s, int idx){
+static void punch_off(loopex_t *s, int idx){
     for(int i=0;i<NUM_PSLOTS;i++) if(s->pslot[i].idx==idx){ s->pslot[i].releasing=1; return; }  /* fade out, freed in render */
 }
 /* per-block: set each active slot's tone LP coeffs from its effect's Tone param */
-static void punch_prep(loopbox_t *s){
+static void punch_prep(loopex_t *s){
     for(int i=0;i<NUM_PSLOTS;i++){ PunchSlot *ps=&s->pslot[i]; if(ps->idx<0)continue; float t=ps->pSm[2];
         if(t<0.98f){ double cut=500.0*pow(18000.0/500.0,(double)t); bq_set_lp(&ps->toneFilt,cut,0.707); } }
 }
 
 static void fxseq_init(FxSeq *f){ memset(f,0,sizeof *f); f->speed=1; f->len=16; f->gate=1.0f; f->swing=0.5f; f->pos=-1; f->pingDir=1; f->gateTimer=-1; f->rng=0x5eedf00du; f->lastTrig=1; }
-static void fxseq_off_all(loopbox_t *s){
+static void fxseq_off_all(loopex_t *s){
     for(int p=0;p<NUM_PUNCH;p++) if(s->fx.seqHeld[p]){ s->fx.seqHeld[p]=0; if(!s->fx.userHeld[p]) punch_off(s,p); }
 }
 static int fxseq_peek(const FxSeq *f, int pos){   /* the step after `pos` in the current direction */
@@ -759,7 +759,7 @@ static int fxseq_chance(FxSeq *f, FxStep *st){
     else if(c==13)      trig=((st->cycles-1)%2)==1;    /* Skip 1 Play 1 */
     f->lastTrig=trig; return trig;
 }
-static void fxseq_apply(loopbox_t *s, int idx){
+static void fxseq_apply(loopex_t *s, int idx){
     FxSeq *f=&s->fx; FxStep *st=&f->st[idx];
     if(st->ext){ f->gateTimer=-1; return; }                     /* extension: the previous step keeps holding */
     int trig=(st->n>0)?fxseq_chance(f,st):0;
@@ -775,7 +775,7 @@ static void fxseq_apply(loopbox_t *s, int idx){
     int nextExt=f->st[fxseq_peek(f,idx)].ext;
     f->gateTimer=(trig&&f->gate<0.99f&&!nextExt)?(int)((double)f->stepLen*(double)f->gate):-1;
 }
-static void fxseq_tick(loopbox_t *s, int frames){
+static void fxseq_tick(loopex_t *s, int frames){
     FxSeq *f=&s->fx;
     if(f->restart){ f->restart=0; f->pos=-1; f->pingDir=1; f->counter=0; f->odd=0; f->gateTimer=-1; f->lastTrig=1;
         for(int i=0;i<FXSEQ_STEPS;i++) f->st[i].cycles=0; fxseq_off_all(s); }
@@ -826,7 +826,7 @@ static inline void punch_doubler(PunchSlot *ps, double *sl, double *sr){
     double g=(double)ps->dblGain;
     *sl=*sl*(1.0-0.2*g)+dblL*0.5*g; *sr=*sr*(1.0-0.2*g)+dblR*0.5*g;   /* dry unity at g=0: no step when the hold ends */
 }
-static inline void punch_slot_process(loopbox_t *s, PunchSlot *ps, int n, double *outL, double *outR){
+static inline void punch_slot_process(loopex_t *s, PunchSlot *ps, int n, double *outL, double *outR){
     const PunchDef *d=&PUNCH_DEFS[ps->idx];
     for(int j=0;j<4;j++) ps->pSm[j]+=(s->punchParams[ps->idx][j]-ps->pSm[j])*0.004f;   /* ~6 ms: knob detents do not step the sound */
     float *P=ps->pSm; int toneOn=(P[2]<0.98f);
@@ -1008,7 +1008,7 @@ static inline void head_jump(Voice *v, int k, double d){
     while(P->phase>=L)P->phase-=L; while(P->phase<0.0)P->phase+=L;
 }
 /* ---- Voice Render (stereo) ---- */
-static void voice_render(Voice *v, loopbox_t *s, int n, double *outL, double *outR, double *sendAL, double *sendAR, double *sendBL, double *sendBR) {
+static void voice_render(Voice *v, loopex_t *s, int n, double *outL, double *outR, double *sendAL, double *sendAR, double *sendBL, double *sendBR) {
     *outL=*outR=*sendAL=*sendAR=*sendBL=*sendBR=0.0;
     int playing=(v->state==VS_PLAYING||v->state==VS_OVERDUBBING);
     int scrubbing=(v->scrubTimer>0);
@@ -1166,7 +1166,7 @@ static void voice_disintegrate_pass(Voice *v) {
 }
 
 /* ---- MIDI-keyboard polyphony (plays a loop's buffer pitched, through its FX) ---- */
-static void poly_note_on(loopbox_t *s, int loopIdx, int note, int vel) {
+static void poly_note_on(loopex_t *s, int loopIdx, int note, int vel) {
     if(loopIdx<0||loopIdx>=NUM_VOICES)return;
     Voice *lp=&s->voice[loopIdx]; if(lp->loopLen<=0)return;   /* nothing recorded yet */
     int slot=-1; for(int i=0;i<POLY_VOICES;i++) if(!s->poly[i].active){slot=i;break;}
@@ -1178,11 +1178,11 @@ static void poly_note_on(loopbox_t *s, int loopIdx, int note, int vel) {
     pv->env=0.0; pv->vel=(float)vel/127.0f; pv->djMode=lp->djMode;
     bq_reset(&pv->djA);bq_reset(&pv->eqLow);bq_reset(&pv->eqMid);bq_reset(&pv->eqHigh);bq_reset(&pv->tiltLo);bq_reset(&pv->tiltHi);
 }
-static void poly_note_off(loopbox_t *s, int note) {   /* match by note only -> never a stuck note */
+static void poly_note_off(loopex_t *s, int note) {   /* match by note only -> never a stuck note */
     for(int i=0;i<POLY_VOICES;i++){ PolyVoice *pv=&s->poly[i]; if(pv->active&&!pv->releasing&&pv->note==note)pv->releasing=1; }
 }
 /* per-block: refresh each active poly voice's filter/EQ coeffs from its loop */
-static void poly_prep(loopbox_t *s) {
+static void poly_prep(loopex_t *s) {
     for(int i=0;i<POLY_VOICES;i++){ PolyVoice *pv=&s->poly[i]; if(!pv->active)continue;
         if(pv->loopIdx<0||pv->loopIdx>=NUM_VOICES){pv->active=0;continue;}
         Voice *lp=&s->voice[pv->loopIdx]; pv->djMode=lp->djMode;
@@ -1192,7 +1192,7 @@ static void poly_prep(loopbox_t *s) {
     }
 }
 /* per-sample: read buffer pitched, apply loop FX (sat/filter/tilt/EQ), pan/vol, accumulate */
-static inline void poly_sample(loopbox_t *s, double *mixL, double *mixR, double *sAL, double *sAR, double *sBL, double *sBR) {
+static inline void poly_sample(loopex_t *s, double *mixL, double *mixR, double *sAL, double *sAR, double *sBL, double *sBR) {
     for(int pi=0;pi<POLY_VOICES;pi++){ PolyVoice *pv=&s->poly[pi]; if(!pv->active)continue;
         Voice *lp=&s->voice[pv->loopIdx]; if(lp->loopLen<=0){pv->active=0;continue;}
         int effStart=(int)(lp->loopStart*(float)lp->loopLen); if(effStart<0)effStart=0; if(effStart>lp->loopLen-1)effStart=lp->loopLen-1;
@@ -1225,7 +1225,7 @@ static inline void poly_sample(loopbox_t *s, double *mixL, double *mixR, double 
 static const int DRIFT_LEN[DRIFT_N] = { 24001, 41011, 62003, 89017 };  /* ~0.54/0.93/1.41/2.02 s, coprime line lengths */
 static void *create_instance(const char *module_dir, const char *json_defaults) {
     (void)module_dir;(void)json_defaults;
-    loopbox_t *s=(loopbox_t*)calloc(1,sizeof(loopbox_t));if(!s)return NULL;
+    loopex_t *s=(loopex_t*)calloc(1,sizeof(loopex_t));if(!s)return NULL;
     for(int i=0;i<NUM_VOICES;i++){Voice *v=&s->voice[i];
         v->bufferL=(int16_t*)calloc(LOOP_SAMPLES,sizeof(int16_t));
         v->bufferR=(int16_t*)calloc(LOOP_SAMPLES,sizeof(int16_t));
@@ -1299,7 +1299,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
      * looping records from the input). Browser stays empty and harmless. */
     return s;
 }
-static void destroy_instance(void *inst){loopbox_t *s=(loopbox_t*)inst;if(!s)return;
+static void destroy_instance(void *inst){loopex_t *s=(loopex_t*)inst;if(!s)return;
     if(s->sio.active){ atomic_store(&s->sio.cancel,1); atomic_store(&s->sio.request,1); /* wake */
         pthread_join(s->sio.th,NULL); s->sio.active=0; }   /* join BEFORE freeing buffers */
     for(int i=0;i<NUM_VOICES;i++){free(s->voice[i].bufferL);free(s->voice[i].bufferR);ps_destroy(s->voice[i].ps);}
@@ -1309,7 +1309,7 @@ static void destroy_instance(void *inst){loopbox_t *s=(loopbox_t*)inst;if(!s)ret
 
 /* ---- MIDI Handler ---- */
 static void on_midi(void *inst, const uint8_t *msg, int len, int source) {
-    loopbox_t *s=(loopbox_t*)inst;if(len<3)return;
+    loopex_t *s=(loopex_t*)inst;if(len<3)return;
     uint8_t status=msg[0]&0xF0,d1=msg[1],d2=msg[2];
 
     /* Overtake: internal pad/knob input is owned by ui.js, which drives the DSP
@@ -1328,7 +1328,7 @@ static void on_midi(void *inst, const uint8_t *msg, int len, int source) {
 }
 
 /* ---- Input EQ (record chain) ---- */
-static void input_eq_update(loopbox_t *s){
+static void input_eq_update(loopex_t *s){
     double lDb=(double)s->inLow*15.0, mDb=(double)s->inMid*11.0, hDb=(double)s->inHigh*15.0;
     double mF=150.0*pow(7000.0/150.0,(double)s->inMidFreq), hF=3000.0+(double)s->inHighFreq*12000.0;
     if(fabs(lDb)>0.1)bq_set_lowshelf(&s->inEqLo,120.0,lDb,0.7); else bq_reset(&s->inEqLo);
@@ -1339,7 +1339,7 @@ static void input_eq_update(loopbox_t *s){
 }
 
 /* ---- Tape transport wobble on the RECORD path (Wow = slow, Flutter = fast) ---- */
-static inline void input_wowflutter(loopbox_t *s, double *l, double *r, double wow, double flut){
+static inline void input_wowflutter(loopex_t *s, double *l, double *r, double wow, double flut){
     if(wow<0.005&&flut<0.005)return;
     int wr=s->iFlutWr; s->iFlutBufL[wr]=*l; s->iFlutBufR[wr]=*r;
     s->iFlutPhW+=TWOPI*0.7/SR;  if(s->iFlutPhW>TWOPI)s->iFlutPhW-=TWOPI;   /* ~0.7 Hz wow    */
@@ -1352,7 +1352,7 @@ static inline void input_wowflutter(loopbox_t *s, double *l, double *r, double w
     s->iFlutWr=(wr-1+FLUTTER_BUF)&(FLUTTER_BUF-1);
 }
 /* Generations: approximate N tape dubs — soft-sat + progressive darkening + hiss. */
-static inline void input_generations(loopbox_t *s, double *l, double *r, double g, uint32_t *rng){
+static inline void input_generations(loopex_t *s, double *l, double *r, double g, uint32_t *rng){
     if(g<0.005)return;
     double mk=1.0/(1.0+g*0.4);
     *l=lb_tanh(*l*(1.0+g*0.8))*mk; *r=lb_tanh(*r*(1.0+g*0.8))*mk;
@@ -1363,7 +1363,7 @@ static inline void input_generations(loopbox_t *s, double *l, double *r, double 
 }
 
 /* ---- Perform: Stumble (free-running probabilistic step glitch on the master) ---- */
-static inline void stumble_sample(loopbox_t *s, double *mixL, double *mixR){
+static inline void stumble_sample(loopex_t *s, double *mixL, double *mixR){
     if(s->stMix<=0.001f)return;
     s->stRingL[s->stW]=(float)*mixL; s->stRingR[s->stW]=(float)*mixR;
     if(--s->stStepLeft<=0){
@@ -1395,7 +1395,7 @@ static inline void stumble_sample(loopbox_t *s, double *mixL, double *mixR){
     }
     s->stW++; if(s->stW>=PUNCH_BUF)s->stW=0;
 }
-static inline void dropout_sample(loopbox_t *s, double *mixL, double *mixR){
+static inline void dropout_sample(loopex_t *s, double *mixL, double *mixR){
     if(s->dropAmt<=0.001f && s->dropG>0.9995){ return; }
     if(--s->dropLeft<=0){ s->dropLeft=(int)(SR*(0.02+PRND(s->dropRng)*0.15)); s->dropActive=(PRND(s->dropRng)<(double)s->dropAmt*0.4); }
     double target=s->dropActive?(1.0-(double)s->dropAmt):1.0;
@@ -1462,7 +1462,7 @@ static inline float mf_run(float *st, float x, float g, float reso, int voicing)
     float comp=1.0f+0.5f*k;
     return lp*comp;
 }
-static inline void master_filter(loopbox_t *s, double *l, double *r){
+static inline void master_filter(loopex_t *s, double *l, double *r){
     /* ~5 ms one-pole glide on cutoff + reso: sweeps are continuous, never stepped */
     s->mfCutSm  += (s->mfCut  - s->mfCutSm ) * 0.006f;
     s->mfResoSm += (s->mfReso - s->mfResoSm) * 0.006f;
@@ -1498,7 +1498,7 @@ static inline double mclk_rd(const float *b, double pos){
 
 static const int MCLK_SEMI[13] = { -24,-19,-17,-12,-7,-5,0,5,7,12,17,19,24 };
 
-static inline void master_clock(loopbox_t *s, double *l, double *r){
+static inline void master_clock(loopex_t *s, double *l, double *r){
 
     double _dryL=*l,_dryR=*r;
 
@@ -1546,7 +1546,7 @@ static inline void master_clock(loopbox_t *s, double *l, double *r){
 
 }
 
-static inline void master_clockfilter(loopbox_t *s, double *l, double *r){
+static inline void master_clockfilter(loopex_t *s, double *l, double *r){
 
     master_clock(s,l,r);
 
@@ -1561,7 +1561,7 @@ static inline void master_clockfilter(loopbox_t *s, double *l, double *r){
  * downbeat and breathes back up over the cycle. K7 = depth, K8 = rate (the beat
  * division). Locked to the Move tempo (punch_beat), so it sits with the loops. */
 static const double PUMP_DIV[6] = { 1.0, 0.5, 1.0/3.0, 0.25, 1.0/6.0, 0.125 };  /* beats per cycle */
-static inline void perf_pump(loopbox_t *s, double *l, double *r){
+static inline void perf_pump(loopex_t *s, double *l, double *r){
     if(s->perfTrem<0.002f) return;
     int di=(int)((double)s->perfTremRate*5.99); if(di<0)di=0; if(di>5)di=5;
     double period=punch_beat()*PUMP_DIV[di]; if(period<64.0)period=64.0;
@@ -1615,7 +1615,7 @@ static const double MEQ_DEF[MEQ_N][10] = {
 
 };
 
-static void master_eq_update(loopbox_t *s){
+static void master_eq_update(loopex_t *s){
 
     int p=s->masterEQ; if(p<0)p=0; if(p>=MEQ_N)p=MEQ_N-1;
 
@@ -1635,7 +1635,7 @@ static void master_eq_update(loopbox_t *s){
 
 }
 
-static inline void master_character(loopbox_t *s, double *l, double *r){
+static inline void master_character(loopex_t *s, double *l, double *r){
 
     if(s->masterEQ<=MEQ_OFF) return;
 
@@ -1657,7 +1657,7 @@ static inline void master_character(loopbox_t *s, double *l, double *r){
 
 /* ---- Master glue compressor (slow bus comp, program-dependent) ------------- */
 
-static inline void master_glue(loopbox_t *s, double *l, double *r){
+static inline void master_glue(loopex_t *s, double *l, double *r){
 
     if(s->masterGlue<0.01f) return;
 
@@ -1685,7 +1685,7 @@ static inline void master_glue(loopbox_t *s, double *l, double *r){
 
 /* ---- Analog tape limiter (replaces the plain master limiter; drive = colour) */
 
-static inline void tape_limiter(loopbox_t *s, double *l, double *r){
+static inline void tape_limiter(loopex_t *s, double *l, double *r){
     if(s->tapeLimit<=0.001f) return;                          /* true bypass */
     double drv=1.0+(double)s->tapeLimit*2.5;
     double det=fmax(fabs(*l),fabs(*r))*drv;
@@ -1715,7 +1715,7 @@ static inline void master_limiter(double *l, double *r, double *env){
  * old content (Suppress); a one-pole damps the tail (Damp); Mix blends the wet
  * ambient layer back into the master. The coprime lengths plus per-line async
  * LFOs mean the recombination never lands on an exact repeat. */
-static inline void drift_sample(loopbox_t *s, double *l, double *r){
+static inline void drift_sample(loopex_t *s, double *l, double *r){
     if(!s->drL[0]) return;
     float *sm=s->driftSm;
     const float tgt[8]={s->driftAmt,s->driftRate,s->driftSize,s->driftFb,s->driftSupr,s->driftBlur,s->driftDamp,s->driftMix};
@@ -1773,7 +1773,7 @@ static inline void drift_sample(loopbox_t *s, double *l, double *r){
  * own channel-1 note-ons to the pad LEDs, so a non-1 channel keeps the Track Focus
  * notes (68-83) off the Move pads. Set the LaunchControl templates to this channel. */
 #define LCXL_CH 0x01
-static inline void lcxl_leds(loopbox_t *s){
+static inline void lcxl_leds(loopex_t *s){
     if(!g_host||!g_host->midi_send_external) return;
     const uint8_t ST = 0x90 | LCXL_CH;
     if(s->midiOut!=s->midiOutPrev){ for(int i=0;i<16;i++){ s->ledFocusCache[i]=0xFF; s->ledMuteCache[i]=0xFF; } s->midiOutPrev=s->midiOut; }
@@ -1789,7 +1789,7 @@ static inline void lcxl_leds(loopbox_t *s){
     }
 }
 static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
-    loopbox_t *s=(loopbox_t*)inst;
+    loopex_t *s=(loopex_t*)inst;
     if(frames>128)frames=128; if(frames<0)frames=0;   /* host is fixed at 128; guard the per-block arrays */
     struct timespec _t0; clock_gettime(CLOCK_MONOTONIC,&_t0);
     /* A finished session load hands back a settings blob — apply it here (bounded
@@ -1975,7 +1975,7 @@ static int match_enum(const char *value, const char **opts, int count){for(int i
 
 /* ---- Overtake control (driven from ui.js via set_param("cmd", ...)) ---- */
 /* Single-tap gesture: cycle Empty->Rec->Play<->Pause; from Odub -> Play. */
-static void voice_tap(loopbox_t *s, int vi) {
+static void voice_tap(loopex_t *s, int vi) {
     if(vi<0||vi>=NUM_VOICES)return; Voice *v=&s->voice[vi]; s->selTrack=vi+1;
     switch(v->state){
     case VS_EMPTY: v->state=VS_RECORDING; v->recHead=0; v->loopLen=0; break;
@@ -1986,7 +1986,7 @@ static void voice_tap(loopbox_t *s, int vi) {
     }
 }
 /* Overdub gesture (double-tap): Play/Pause -> Overdub; Odub -> Play; Rec -> Play. */
-static void voice_odub(loopbox_t *s, int vi) {
+static void voice_odub(loopex_t *s, int vi) {
     if(vi<0||vi>=NUM_VOICES)return; Voice *v=&s->voice[vi]; s->selTrack=vi+1;
     switch(v->state){
     case VS_PLAYING: case VS_PAUSED: v->state=VS_OVERDUBBING; v->recHead=v->playHead;
@@ -1998,7 +1998,7 @@ static void voice_odub(loopbox_t *s, int vi) {
 }
 
 static void set_param(void *inst, const char *key, const char *val) {
-    loopbox_t *s=(loopbox_t*)inst;if(!key||!val)return;
+    loopex_t *s=(loopex_t*)inst;if(!key||!val)return;
     /* State restore: the host hands back the whole blob from get_param("state").
      * Split "key=value" lines and replay each through this same dispatcher.
      * Bounded string work only — no I/O, no alloc — so it is callback-safe. */
@@ -2246,7 +2246,7 @@ static void set_param(void *inst, const char *key, const char *val) {
 /* ui_hierarchy JSON - MUST be returned from get_param for sound generators */
 static const char *UI_HIERARCHY_JSON =
     "{\"modes\":null,\"levels\":{"
-    "\"root\":{\"name\":\"LoopBox\","
+    "\"root\":{\"name\":\"Loopex\","
     "\"knobs\":[\"v_pitch\",\"v_filter\",\"v_pan\",\"v_volume\",\"v_start\",\"v_end\",\"v_reverse\",\"v_sendA\"],"
     "\"params\":[{\"level\":\"LOOP\",\"label\":\"Loop\"},{\"level\":\"INPUT\",\"label\":\"Input\"},{\"level\":\"FX\",\"label\":\"Global FX\"},{\"level\":\"MASTER\",\"label\":\"Master\"}]},"
     "\"LOOP\":{\"label\":\"Loop\","
@@ -2324,14 +2324,14 @@ static const char *CHAIN_PARAMS_JSON =
 
 #define APP(...) do{ if(p<buf_len){ int _n=snprintf(buf+p,(size_t)(buf_len-p),__VA_ARGS__); if(_n>0)p+=_n; if(p>buf_len)p=buf_len; } }while(0)
 static int get_param(void *inst, const char *key, char *buf, int buf_len) {
-    loopbox_t *s=(loopbox_t*)inst;if(!key)return -1;
+    loopex_t *s=(loopex_t*)inst;if(!key)return -1;
     if(strncmp(key,"pfxq",4)==0){ int i=atoi(key+4); if(i<0||i>=NUM_PUNCH)return -1;
         return snprintf(buf,buf_len,"%.4f,%.4f,%.4f,%.4f",(double)s->punchParams[i][0],(double)s->punchParams[i][1],(double)s->punchParams[i][2],(double)s->punchParams[i][3]); }
     if(strncmp(key,"pflq",4)==0){ int i=atoi(key+4); if(i<0||i>=NUM_PUNCH)return -1;
         return snprintf(buf,buf_len,"%.4f,%.4f,%.4f,%.4f",(double)s->punchLfo[i][0],(double)s->punchLfo[i][1],(double)s->punchLfo[i][2],(double)s->punchLfo[i][3]); }
 
     /* Overtake: Manager discovery + UI feedback */
-    if(strcmp(key,"module_id")==0)return snprintf(buf,buf_len,"loopbox");
+    if(strcmp(key,"module_id")==0)return snprintf(buf,buf_len,"loopex");
     if(strcmp(key,"cpu")==0)return snprintf(buf,buf_len,"%.1f",s->cpuPct);
     if(strcmp(key,"sessStatus")==0){ static const char *st[]={"","Saving..","Loading..","OK","Empty"};
         int i=atomic_load(&s->sio.status); if(i<0||i>4)i=0; return snprintf(buf,buf_len,"%s",st[i]); }
@@ -2409,7 +2409,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
         memcpy(buf,UI_HIERARCHY_JSON,len+1);return len;}
     if(strcmp(key,"chain_params")==0){int len=(int)strlen(CHAIN_PARAMS_JSON);if(len>=buf_len)return -1;
         memcpy(buf,CHAIN_PARAMS_JSON,len+1);return len;}
-    if(strcmp(key,"name")==0)return snprintf(buf,buf_len,"LoopBox");
+    if(strcmp(key,"name")==0)return snprintf(buf,buf_len,"Loopex");
 
     GETP("globalSat",globalSat) GETP("masterComp",masterComp)
     if(strcmp(key,"masterLoCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterLoCut);

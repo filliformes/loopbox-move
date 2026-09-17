@@ -7,12 +7,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 MOVE_HOST="${MOVE_HOST:-ableton@move.local}"
-DEST=/data/UserData/schwung/modules/overtake/loopbox
+DEST=/data/UserData/schwung/modules/overtake/loopex
 
-[ -f dist/loopbox/dsp.so ] || { echo "no dist/loopbox/dsp.so — run scripts/build.sh first"; exit 1; }
+[ -f dist/loopex/dsp.so ] || { echo "no dist/loopex/dsp.so — run scripts/build.sh first"; exit 1; }
 
 echo "staging to $MOVE_HOST ..."
-scp dist/loopbox/dsp.so dist/loopbox/module.json dist/loopbox/ui.js "$MOVE_HOST:/data/UserData/"
+scp dist/loopex/dsp.so dist/loopex/module.json dist/loopex/ui.js "$MOVE_HOST:/data/UserData/"
 
 echo "atomic move into place ..."
 ssh "$MOVE_HOST" "set -e
@@ -24,6 +24,6 @@ ssh "$MOVE_HOST" "set -e
   echo 'installed:'; ls -l \"\$D\""
 
 echo
-echo "Done. On the Move: rescan modules (or Schwung Manager), then open LBX Shell"
+echo "Done. On the Move: rescan modules (or Schwung Manager), then open LPX Shell"
 echo "from the Overtake/Tools list. If it was already loaded, FULL-EXIT first"
 echo "(Shift+Back) so suspend_keeps_js doesn't resume the old code."

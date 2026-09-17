@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LoopBox: Manual</title>
-<meta name="description" content="LoopBox: a 16-track stereo tape looper for Ableton Move, built for ambient and experimental music. Quickstart, concept, and full effect reference.">
+<title>Loopex: Manual</title>
+<meta name="description" content="Loopex: a 16-track stereo tape looper for Ableton Move, built for ambient and experimental music. Quickstart, concept, and full effect reference.">
 <style>
   :root{
     --bg:#0c0e11; --bg2:#12151a; --panel:#171b22; --panel2:#1e232c; --line:#272d38;
@@ -153,7 +153,7 @@
 <main>
 <section class="hero" id="top">
   <div class="eyebrow">16-track stereo tape looper · Ableton Move</div>
-  <h1>LoopBox</h1>
+  <h1>Loopex</h1>
   <p class="sub">A looping instrument for ambient and experimental music. Sixteen free-running tape loops, four playheads each, a deep set of performance effects, and every gesture click-free.</p>
   <div class="pills">
     <span class="pill"><b>16</b> stereo loops</span>
@@ -164,26 +164,26 @@
     <span class="pill"><b>32</b> session slots</span>
     <span class="pill">Schwung Overtake</span>
   </div>
-  <p class="muted" style="margin-top:18px">Built for the <a href="https://github.com/charlesvestal/schwung">Schwung</a> framework on Ableton Move. Free &amp; open source: <a href="https://github.com/filliformes/loopbox-move">source on GitHub</a>.</p>
+  <p class="muted" style="margin-top:18px">Built for the <a href="https://github.com/charlesvestal/schwung">Schwung</a> framework on Ableton Move. Free &amp; open source: <a href="https://github.com/filliformes/loopex-move">source on GitHub</a>.</p>
 </section>
 
 <section id="concept">
   <div class="eyebrow">The idea</div>
   <h2>A looper you play like an instrument</h2>
-  <p class="lede">LoopBox turns Move's pads into sixteen independent tape loops that never have to agree on a length or a downbeat. You layer sound freely, then treat every loop as raw material: re-pitched, re-ordered, filtered, granulated, frozen, with the whole surface live under your hands.</p>
+  <p class="lede">Loopex turns Move's pads into sixteen independent tape loops that never have to agree on a length or a downbeat. You layer sound freely, then treat every loop as raw material: re-pitched, re-ordered, filtered, granulated, frozen, with the whole surface live under your hands.</p>
   <div class="grid g3">
     <div class="card"><h3>Free-running</h3><p>Each loop is its own tape. Record one at 3 seconds and another at 40, in different keys, at different speeds. Nothing is quantized to a grid unless you ask.</p></div>
     <div class="card"><h3>Everything performs</h3><p>Speed, pitch, filter, grain, reverb sends, playheads: all live per loop. Sixteen momentary punch-in effects sit on the right pads, pressure-sensitive and stackable.</p></div>
     <div class="card"><h3>Click-free</h3><p>Every jump, mute, overdub and knob move is crossfaded or smoothed. You can be violent with it and it stays musical.</p></div>
   </div>
-  <div class="note">LoopBox draws its screen and widgets with Schwung's own param-page renderer, so it looks and behaves like a native Move instrument: round knobs, notched enum squares, animated buttons, header and footer.</div>
+  <div class="note">Loopex draws its screen and widgets with Schwung's own param-page renderer, so it looks and behaves like a native Move instrument: round knobs, notched enum squares, animated buttons, header and footer.</div>
 </section>
 
 <section id="quickstart">
   <div class="eyebrow">Quickstart</div>
   <h2>Your first loop in a minute</h2>
   <ol class="steps">
-    <li><b>Open LoopBox</b> from the Overtake / Tools list in Schwung. The left 4×4 pads are your loops; the right 4×4 are punch-in effects.</li>
+    <li><b>Open Loopex</b> from the Overtake / Tools list in Schwung. The left 4×4 pads are your loops; the right 4×4 are punch-in effects.</li>
     <li><b>Record.</b> Tap an empty left pad to start recording, tap again to close the loop and play. It loops instantly.</li>
     <li><b>Layer.</b> Tap other empty pads and record more loops on top. They run independently: no need to match lengths.</li>
     <li><b>Shape it.</b> Press a <b>step button</b> to select a loop and see its waveform. Turn the eight knobs to sweep Filter, Pitch, Scatter, Seed and more across its four pages (<kbd>Up</kbd>/<kbd>Down</kbd> change page).</li>
@@ -204,9 +204,9 @@
     <div><b>Track buttons</b> (the four colours beside the pads): 1 Input FX &middot; 2 Perform &middot; 3 Send FX &middot; 4 Settings.</div>
     <div><b class="g">&#9655;</b> Play &middot; <b class="g">&#9675;</b> Record. Right of them: 16 steps select a loop or an FX-seq pattern.</div>
   </div>
-  <div class="movewrap"><div class="move" aria-label="Ableton Move layout as used by LoopBox">
+  <div class="movewrap"><div class="move" aria-label="Ableton Move layout as used by Loopex">
     <div class="mv-top">
-      <div class="mv-scr"><div class="ico">&#9684; &#9646;&#9646; &#9680;</div><div class="ttl">LOOPBOX</div></div>
+      <div class="mv-scr"><div class="ico">&#9684; &#9646;&#9646; &#9680;</div><div class="ttl">LOOPEX</div></div>
       <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
       <div class="kn"></div><div class="kn"></div><div class="kn"></div><div class="kn"></div>
       <div class="kn big" title="Master volume"></div>
@@ -392,7 +392,7 @@
 <section id="sessions">
   <div class="eyebrow">Sessions</div>
   <h2>Save the whole rig</h2>
-  <p>Sixty-four slots on the &#8801; (Menu) button. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. <b>Del</b> (K4) erases a slot. Saving over a used slot, or deleting one, asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopbox-sessions/</code> and survive reinstalls.</p>
+  <p>Sixty-four slots on the &#8801; (Menu) button. A session stores every setting, the punch-pad values, the FX-sequencer pattern <em>and</em> all recorded audio. <b>Del</b> (K4) erases a slot. Saving over a used slot, or deleting one, asks first; each is date-and-time named, and the header shows which session is loaded. All disk work happens on a background thread, never on the audio callback, so saving never glitches playback. Sessions live under <code>/data/UserData/schwung/loopex-sessions/</code> and survive reinstalls.</p>
 </section>
 
 <section id="cheat">
@@ -433,8 +433,8 @@
 <section id="credits">
   <div class="eyebrow">Credits</div>
   <h2>Standing on open work</h2>
-  <p>LoopBox is free and open source under GPL-3.0. It builds on <a href="https://github.com/charlesvestal/schwung">Schwung</a>, Mutable Instruments <a href="https://github.com/pichenettes/eurorack">Clouds &amp; Warps</a>, <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">Signalsmith Stretch</a>, <a href="https://www.airwindows.com">Airwindows</a>, Jon Dattorro's plate, and the sibling instruments Res, Essaim, Phasma, Palette, Magnéto and Signal. Full list in the <a href="https://github.com/filliformes/loopbox-move#credits">repository</a>.</p>
-  <footer>LoopBox: a dream ambient &amp; experimental looper for Ableton Move. Made by filliformes. · <a href="https://github.com/filliformes/loopbox-move">GitHub</a></footer>
+  <p>Loopex is free and open source under GPL-3.0. It builds on <a href="https://github.com/charlesvestal/schwung">Schwung</a>, Mutable Instruments <a href="https://github.com/pichenettes/eurorack">Clouds &amp; Warps</a>, <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">Signalsmith Stretch</a>, <a href="https://www.airwindows.com">Airwindows</a>, Jon Dattorro's plate, and the sibling instruments Res, Essaim, Phasma, Palette, Magnéto and Signal. Full list in the <a href="https://github.com/filliformes/loopex-move#credits">repository</a>.</p>
+  <footer>Loopex: a dream ambient &amp; experimental looper for Ableton Move. Made by filliformes. · <a href="https://github.com/filliformes/loopex-move">GitHub</a></footer>
 </section>
 
 </main>
@@ -565,7 +565,7 @@ const shots=[
  {cap:'Sessions: 64 slots named by date and time, saved with the audio.',
   svg:knobPage('SESSIONS','SESSION 5',['SLOT','SAVE','LOAD'],[0.15,0,0],['k','b','b'],undefined,[['5*','SEP 15 21:30'],['BACK','EXIT']])},
  {cap:'Perform page 2: master filter, Mood clock and the ducking pump.',
-  svg:knobPage('LOOPBOX','PERFORM',['CUT','RESO','FCHAR','CLOCK','CLKMD','CLKAT','PUMP','PMPRT'],[0.7,0.35,'MS-20',0.5,'MUSIC','PRE',0.3,0.4],['k','k','e','k','e','e','k','k'],undefined,[['BACK','EXIT']])},
+  svg:knobPage('LOOPEX','PERFORM',['CUT','RESO','FCHAR','CLOCK','CLKMD','CLKAT','PUMP','PMPRT'],[0.7,0.35,'MS-20',0.5,'MUSIC','PRE',0.3,0.4],['k','k','e','k','e','e','k','k'],undefined,[['BACK','EXIT']])},
  {cap:'FX sequencer page (hold \u2715): run, speed, length, chance, gate, swing, direction, clear.',
   svg:knobPage('FX SEQ','RUNNING',['RUN','SPEED','LEN','CHNC','GATE','SWING','DIR','CLEAR'],['ON','1/16',0.94,'ALWAYS',1.0,0.0,'FWD',0],['e','e','k','e','k','k','e','b'],undefined,[['X+PAD+STEP','WRITE'],['X','RUN']])},
  {cap:'Overview: the 16-track strip, loop length, input level and CPU.',

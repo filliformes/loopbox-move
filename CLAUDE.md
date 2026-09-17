@@ -1,10 +1,10 @@
-# LoopBox — Claude Code context
+# Loopex — Claude Code context
 
 ## What this is
 16-track asynchronous stereo tape looper for Ableton Move, inspired by 1010music BlackBox.
 
 Plugin type: `sound_generator`
-Module ID: `loopbox`
+Module ID: `loopex`
 API: `plugin_api_v2_t`
 Language: C
 
@@ -143,12 +143,12 @@ by MIDI source (internal vs external).
 - `render_block`: output-only int16 stereo, 128 frames
 - Full MIDI: note on/off, CC
 - Capabilities: `chainable: true, audio_in: true, component_type: "sound_generators"`
-- Install path: `modules/sound_generators/loopbox/`
+- Install path: `modules/sound_generators/loopex/`
 
 ---
 
 ## Repo map
-- `src/dsp/loopbox.c` — all DSP
+- `src/dsp/loopex.c` — all DSP
 - `src/dsp/plugin_api_v1.h` — Schwung plugin API header (v1 + v2)
 - `src/module.json` — parameter schema + ui_hierarchy
 - `src/ui_chain.js` — chain UI (3 pages: Main, Control, Loop)

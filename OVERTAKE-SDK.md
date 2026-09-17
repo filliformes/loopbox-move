@@ -60,9 +60,9 @@ The host `dlsym`s the `.so` to decide how to feed it audio (`schwung-work/CLAUDE
 Canonical shape (merging Mark + Performance FX; the fields we'll use):
 ```json
 {
-  "id": "loopbox",
-  "name": "LoopBox",
-  "abbrev": "LBX",
+  "id": "loopex",
+  "name": "Loopex",
+  "abbrev": "LPX",
   "version": "0.4.0",
   "description": "...",
   "author": "Filliformes",
@@ -258,7 +258,7 @@ const obj = host_module_get_params([k1,k2,...]);       // BULK read, up to 48 ke
 
 Two proven approaches:
 - **Direct (Mark/Smack/Overwork):** read `mapped_memory + audio_in_offset` (int16 stereo)
-  each block, write into RAM loop buffers. Simplest for live looping — **this is LoopBox's
+  each block, write into RAM loop buffers. Simplest for live looping — **this is Loopex's
   existing design.**
 - **Input-swap (TwinSampler):** temporarily overwrite the shared-memory input region
   (`save → overwrite → restore`) to choose the capture *source* — line-in / the Move mix bus
@@ -278,7 +278,7 @@ Offsets (`plugin_api_v1.h`): `MOVE_AUDIO_OUT_OFFSET 256`, `MOVE_AUDIO_IN_OFFSET 
 - JSON parser must **tolerate pretty-printed whitespace** after colons (Genera bug) or enum/
   string params silently reset while ints survive.
 - Store presets/sessions **outside** the module dir (e.g.
-  `/data/UserData/schwung/presets/loopbox` or `…/loopbox-sessions`) so reinstalls preserve
+  `/data/UserData/schwung/presets/loopex` or `…/loopex-sessions`) so reinstalls preserve
   them.
 
 ---
@@ -316,14 +316,14 @@ A tiny module that proves the whole SDK + the safe deploy loop, before porting a
 - **`module.json`** — as §2, `component_type:"overtake"`, `suspend_keeps_js:true`,
   `button_passthrough:[85]`.
 - **`dsp.so`** — `move_plugin_init_v2` returning an engine whose `render_block` passes audio
-  through (or silence); answers `get_param("module_id")="loopbox"`; a couple of test params.
+  through (or silence); answers `get_param("module_id")="loopex"`; a couple of test params.
 - **`ui.js`** — `init` (paint pads by a fake per-slot state, batched), `tick`
   (`clear_screen`→`print` a header + a 16-cell strip→`host_flush_display`), `onMidiMessage
   Internal` (light a pad on press, read a knob via `decodeDelta`), `onResume` (force-repaint
   + resync), `onUnload` (clear all LEDs), clean Back-button exit via `host_exit_module()`.
 
 Once this loads, lights pads, reads input, and re-flashes cleanly through the CLOSED-tool
-deploy loop, the risky unknowns are gone and we drop `loopbox.c` in behind it.
+deploy loop, the risky unknowns are gone and we drop `loopex.c` in behind it.
 
 ---
 

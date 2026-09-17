@@ -1,8 +1,8 @@
-# LoopBox
+# Loopex
 
 **A 16-track live tape looper for the Ableton Move, built as a Schwung *Overtake* module.**
 
-LoopBox turns the Move into an asynchronous, tape-flavoured looping instrument: sixteen
+Loopex turns the Move into an asynchronous, tape-flavoured looping instrument: sixteen
 stereo loops on the left pads — each with **up to four independent playheads** — a bank of
 momentary/latchable glitch FX on the right pads, two send buses drawing on a 25-effect
 Palette engine plus a Dattorro plate, a full record-path tape machine, session save/load,
@@ -12,8 +12,8 @@ and a MIDI-keyboard polyphony layer.
 > Chase Bliss Blooper / Mood MK2, and Microcosm-style glitch. Interaction ideas borrowed
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
-- **Module:** `loopbox` · **Name:** LoopBox · **Abbrev:** LBX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.2 · **Manual:** [online](https://filliformes.github.io/loopbox-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
+- **Module:** `loopex` · **Name:** Loopex · **Abbrev:** LPX · **Type:** Overtake (Schwung) · **API v2**
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.2 · **Manual:** [online](https://filliformes.github.io/loopex-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
 
 ---
 
@@ -134,7 +134,7 @@ high feedback sustains without runaway.
 `slot_YYYYMMDD_HHMM`; saving over a used slot asks for confirmation. Settings *and*
 recorded audio are stored; all disk work runs on a `SCHED_OTHER` worker thread pinned to
 cores 0–2, never on the audio callback. Sessions live in
-`/data/UserData/schwung/loopbox-sessions/` so reinstalls keep them.
+`/data/UserData/schwung/loopex-sessions/` so reinstalls keep them.
 
 ### Perform, MIDI and I/O
 - **Perform menu:** Stumble (probabilistic step glitch), Jump, Scan, Dropout.
@@ -216,7 +216,7 @@ cd overtake-shell
 ./scripts/install.sh    # scp + atomic-rename install to move.local
 ```
 
-Then on the Move: rescan modules and open **LBX / LoopBox** from the Overtake list.
+Then on the Move: rescan modules and open **LPX / Loopex** from the Overtake list.
 **If it was already loaded, full-exit first** (Shift + Volume + Jog-click) — `suspend_keeps_js`
 otherwise resumes the old code.
 
@@ -233,7 +233,7 @@ otherwise resumes the old code.
 overtake-shell/            <- the active module
   module.json              Overtake manifest (id/name/capabilities)
   src/
-    loopbox.c              engine: voices, playheads, punch-FX, stumble, sessions, master
+    loopex.c              engine: voices, playheads, punch-FX, stumble, sessions, master
     palette_fx.c/.h        24-effect Palette engine + Dattorro Plate
     fx_clouds.cc           Clouds-based Space/Bloom (C++)
     warps_data.c           Warps wavetables (Fold/Shift)
@@ -249,7 +249,7 @@ design-spec.md             full design rationale
 
 ## Credits
 
-LoopBox stands on a lot of open work. Code that is vendored or ported is used under its own
+Loopex stands on a lot of open work. Code that is vendored or ported is used under its own
 license (see `overtake-shell/vendor/` and the file headers); the rest is inspiration.
 
 ### Code used
@@ -270,7 +270,7 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
   verbatim from its `render_page_movy.mjs`. https://github.com/charlesvestal/schwung
 
 ### Sibling Move modules (same author)
-- **Palette** — the 24-effect send engine LoopBox embeds. https://github.com/filliformes/palette-move
+- **Palette** — the 24-effect send engine Loopex embeds. https://github.com/filliformes/palette-move
 - **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
 - **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
 - **Structor** — several punch-effect ideas. https://github.com/filliformes/structor-move

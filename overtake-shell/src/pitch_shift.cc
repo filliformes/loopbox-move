@@ -1,11 +1,11 @@
 /*
- * pitch_shift.cc — per-loop pitch shifter for LoopBox.
+ * pitch_shift.cc — per-loop pitch shifter for Loopex.
  *
  * Wraps Signalsmith Stretch 1.1.0 (MIT, Geraint Luff) — a phase-vocoder
  * style shifter with real transient/tonality handling — behind a tiny C API,
- * the same way fx_clouds.cc isolates the Clouds engine. loopbox.c only holds
+ * the same way fx_clouds.cc isolates the Clouds engine. loopex.c only holds
  * a void*. Configured at block 2048 / interval 512 (46 ms / 11.6 ms): total
- * latency ~ one block, which loopbox.c compensates by nudging the loop's
+ * latency ~ one block, which loopex.c compensates by nudging the loop's
  * playheads forward when the shifter engages, so a shifted loop stays in
  * time with the others.
  */

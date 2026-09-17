@@ -1,9 +1,9 @@
 /*
- * LBX Shell — minimal Overtake DSP (generator/jack role) + RAM probe.
+ * LPX Shell — minimal Overtake DSP (generator/jack role) + RAM probe.
  *
- * Validates the Overtake SDK plumbing AND the LoopBox memory risk:
+ * Validates the Overtake SDK plumbing AND the Loopex memory risk:
  *   - exports move_plugin_init_v2 (generator role)
- *   - answers get_param("module_id") = "lbxshell"  (Manager discovery)
+ *   - answers get_param("module_id") = "lpxshell"  (Manager discovery)
  *   - RAM PROBE: create_instance runs the "shrinking-capacity fallback ladder" —
  *     tries 16 tracks x 45s stereo int16 (~121 MB), stepping the seconds down
  *     until every track's calloc succeeds. Then render_block INCREMENTALLY
@@ -105,7 +105,7 @@ static int shell_get_param(void *inst, const char *key, char *buf, int buf_len) 
     shell_t *s = (shell_t *)inst;
     if (!key || !buf || buf_len <= 0) return -1;
     if (strcmp(key, "module_id") == 0)
-        return snprintf(buf, buf_len, "%s", "lbxshell");
+        return snprintf(buf, buf_len, "%s", "lpxshell");
     if (s && strcmp(key, "ram") == 0) {
         if (s->tracks == 0)
             return snprintf(buf, buf_len, "ALLOC FAILED");

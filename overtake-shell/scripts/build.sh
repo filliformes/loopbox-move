@@ -6,7 +6,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-IMAGE=loopbox-build
+IMAGE=loopex-build
 WROOT="$(pwd -W 2>/dev/null || pwd)"
 
 # [0] Validate ui.js as an ES module BEFORE anything else — a QuickJS parse
@@ -24,17 +24,17 @@ docker build -t "$IMAGE" -f scripts/Dockerfile scripts/ >/dev/null
 echo "[2/4] create container + copy sources"
 CID=$(MSYS_NO_PATHCONV=1 docker create -w /build "$IMAGE" bash -c '
   set -e
-  mkdir -p dist/loopbox obj
+  mkdir -p dist/loopex obj
   CF="-O3 -g -fPIC -ffast-math -Wno-misleading-indentation -Iinclude -Isrc"
-  aarch64-linux-gnu-gcc $CF -c src/loopbox.c    -o obj/loopbox.o
+  aarch64-linux-gnu-gcc $CF -c src/loopex.c    -o obj/loopex.o
   aarch64-linux-gnu-gcc $CF -c src/palette_fx.c -o obj/palette_fx.o
   aarch64-linux-gnu-gcc $CF -c src/warps_data.c -o obj/warps_data.o
   aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -std=c++11 -fno-exceptions -fno-rtti \
       -Isrc -Ivendor/clouds_engine -Ivendor/signalsmith -c src/fx_clouds.cc -o obj/fx_clouds.o
   aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -std=c++11 -fno-exceptions -fno-rtti \
       -Isrc -Ivendor/signalsmith/include -Ivendor/signalsmith-stretch -c src/pitch_shift.cc -o obj/pitch_shift.o
-  aarch64-linux-gnu-g++ -shared -o dist/loopbox/dsp.so \
-      obj/loopbox.o obj/palette_fx.o obj/warps_data.o obj/fx_clouds.o obj/pitch_shift.o -lm -lpthread
+  aarch64-linux-gnu-g++ -shared -o dist/loopex/dsp.so \
+      obj/loopex.o obj/palette_fx.o obj/warps_data.o obj/fx_clouds.o obj/pitch_shift.o -lm -lpthread
   echo BUILD_OK
 ')
 docker cp "$WROOT/src" "$CID:/build/src"
@@ -49,12 +49,12 @@ if [ "$EXIT" != "0" ]; then
 fi
 
 echo "[4/4] extract artifact"
-mkdir -p dist/loopbox
-docker cp "$CID:/build/dist/loopbox/dsp.so" "$WROOT/dist/loopbox/dsp.so"
+mkdir -p dist/loopex
+docker cp "$CID:/build/dist/loopex/dsp.so" "$WROOT/dist/loopex/dsp.so"
 docker rm "$CID" >/dev/null
-cp module.json dist/loopbox/module.json
-cp src/ui.js   dist/loopbox/ui.js
+cp module.json dist/loopex/module.json
+cp src/ui.js   dist/loopex/ui.js
 
-echo "Built: dist/loopbox/ (dsp.so + module.json + ui.js)"
-ls -l dist/loopbox/
-file dist/loopbox/dsp.so 2>/dev/null || true
+echo "Built: dist/loopex/ (dsp.so + module.json + ui.js)"
+ls -l dist/loopex/
+file dist/loopex/dsp.so 2>/dev/null || true

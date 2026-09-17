@@ -1,9 +1,9 @@
-# LoopBox — Design Spec (Overtake edition)
+# Loopex — Design Spec (Overtake edition)
 
 > **Status:** DESIGN — revising the v0.3.0 `sound_generator` implementation into a full
 > **Overtake** module. No code changed yet; this doc is the plan to review before building.
 > **Plugin type:** `overtake` (was `sound_generator`)
-> **Module ID:** `loopbox` — evolve the existing `loopbox-move` repo in place
+> **Module ID:** `loopex` — evolve the existing `loopex-move` repo in place
 > **DSP role:** generator/jack (`move_plugin_init_v2`, records mic/line-in)
 > **Last updated:** 2026-09-09
 > **Companion doc:** [`OVERTAKE-SDK.md`](OVERTAKE-SDK.md) — the reverse-engineered SDK reference.
@@ -25,7 +25,7 @@ Overtake also lets us:
   running underneath (`button_passthrough:[85]`).
 - Keep loops playing while the module is suspended (`suspend_keeps_js:true`).
 
-The **DSP engine from v0.3.0 (`loopbox.c`) is largely reusable** — it already records to
+The **DSP engine from v0.3.0 (`loopex.c`) is largely reusable** — it already records to
 per-voice stereo buffers, plays back at variable rate, and has the full per-voice FX chain and
 sends. The Overtake move is mostly: (a) relocate all *control logic* into `ui.js`, (b) drive
 the engine through string params, (c) light pads from JS, (d) merge the punch-fx bank, (e)
@@ -81,7 +81,7 @@ processor (that's Verglas).
 
 | Layer | File | Responsibility |
 |---|---|---|
-| **DSP engine** | `src/dsp/loopbox.c` → `dsp.so` | `plugin_api_v2`, `move_plugin_init_v2`. 16 loop voices, record/varispeed playback, per-voice FX, sends, punch-in FX bank, master chain. Reads input from `mapped_memory+audio_in_offset`. **No control logic, no UI.** Answers `set_param`/`get_param`/`get_param("state")`/`get_param("module_id")`. |
+| **DSP engine** | `src/dsp/loopex.c` → `dsp.so` | `plugin_api_v2`, `move_plugin_init_v2`. 16 loop voices, record/varispeed playback, per-voice FX, sends, punch-in FX bank, master chain. Reads input from `mapped_memory+audio_in_offset`. **No control logic, no UI.** Answers `set_param`/`get_param`/`get_param("state")`/`get_param("module_id")`. |
 | **UI** | `src/ui.js` | QuickJS. Owns screen + all 32 pad LEDs + step LEDs + input. Translates pads/knobs/buttons/**external LCXL MIDI** into engine params. Holds transport/gesture state; drives the DSP via `host_module_set_param[_blocking]` / bulk `get_params`. |
 | **Manifest** | `src/module.json` | `component_type:"overtake"`, capabilities (§4 of SDK doc). |
 | **Help** | `src/help.json` | In-app manual. |
@@ -118,7 +118,7 @@ pass). **Preamp models (12):** Clean, Cass1/2, VHS1/2, Reel15/7/3, 4trk, Porta, 
 (Full parameter tables carried over from v0.3.0 — see git history of this file / CLAUDE.md.)
 
 **New/changed for Overtake:**
-- **Quantized launch:** **default OFF** — LoopBox is unquantized, tape-style by design (free
+- **Quantized launch:** **default OFF** — Loopex is unquantized, tape-style by design (free
   loop lengths, no grid snapping). Optional per-need: when enabled, record/play/overdub
   transitions snap using `host->get_beat_position()` (24-PPQN, <0 when stopped), with a
   **selectable grid of 1–16 bars**. A per-track "pending" state blinks the pad LED until the
@@ -129,7 +129,7 @@ pass). **Preamp models (12):** Clean, Cass1/2, VHS1/2, Reel15/7/3, 4trk, Porta, 
 
 ## 5. Merged Punch-in FX (right 16 pads)
 
-Fold the `punchfx-move` engine (PO-33-style, 16 effects, pressure/aftertouch) into `loopbox.c`
+Fold the `punchfx-move` engine (PO-33-style, 16 effects, pressure/aftertouch) into `loopex.c`
 as a **master-insert performance bank** triggered by the right 4×4 pads (columns 4–7):
 
 - **Momentary:** hold a pad → effect on; release → off. **Shift+hold → latch.**
@@ -169,14 +169,14 @@ reverb+delay send" limitation and mirrors Schwung's own Send A / Send B model.
 
 ## 6.5 Per-track integration proposals — Magnéto, Palette, Smack
 
-Keep LoopBox's current feature set; these are *proposals* for weaving in the user's own modules.
-Baking (copying the DSP into `loopbox.c`) vs hosting (`dlopen` the released `.so` per track,
+Keep Loopex's current feature set; these are *proposals* for weaving in the user's own modules.
+Baking (copying the DSP into `loopex.c`) vs hosting (`dlopen` the released `.so` per track,
 Mark-style) is the one architectural fork — see the recommendation at the end. **Everything
 here is gated by the hardware CPU/RAM test (§12 step 3); nothing is committed until we know how
 many full-chain voices actually run.**
 
 ### Magnéto → the per-track *playback/tape* engine (not an insert)
-LoopBox's per-voice playback already carries tape character (saturation, wow/flutter, HF
+Loopex's per-voice playback already carries tape character (saturation, wow/flutter, HF
 rolloff), so Magnéto isn't an add-on effect — it's the *soul of the loop voice*. Proposal:
 promote the per-voice playback stage to Magnéto's **full** engine, reusing `magneto.c` (the
 user's own single-file C tape looper) as the per-voice character + transport stage:
@@ -195,7 +195,7 @@ Movement / Diffusion / Texture). Two build strategies:
 
 | | **A — Bake `palette.c` in** | **B — Host `palette-move.so` (Mark pattern)** |
 |---|---|---|
-| How | copy the 24-effect DSP into `loopbox.c`; per-track slot picks 1 | `dlopen` the released module per track on a `SCHED_OTHER` worker, atomic block-boundary handoff |
+| How | copy the 24-effect DSP into `loopex.c`; per-track slot picks 1 | `dlopen` the released module per track on a `SCHED_OTHER` worker, atomic block-boundary handoff |
 | Pros | self-contained, predictable CPU, consistent with the punch-FX merge decision | reuse the *released* module verbatim + updates free; **any** Schwung audio_fx per track (Palette, Magnéto, Verglas…) |
 | Cons | code duplication to keep in sync; bigger binary | up to 16 hosted instances (RAM/CPU); threading machinery; partly reopens "one module vs many" |
 | CPU control | per-voice FX-enable; realistically only a few tracks run heavy FX at once | same, plus load/unload debounce |
@@ -208,7 +208,7 @@ insert and the full-palette sends are one body of code.
 ### Smack → a per-track "Scatter" / re-roll mode (you've never used Smack — here's the cool part)
 Smack grabs a clock-synced loop, auto-slices it, and uses a **seeded RNG** to (a) assign a
 playback effect per slice and (b) reorder the slices — repeating *identically* every pass until
-you re-roll the seed. Ported into LoopBox as a **per-track mode** it becomes a live glitch
+you re-roll the seed. Ported into Loopex as a **per-track mode** it becomes a live glitch
 generator that is:
 - **Deterministic & recallable** — the seed reproduces the exact mangle; store it with the loop,
   recall the good ones.
@@ -239,7 +239,7 @@ Rewind/Tape/Gate/Crush), **Reach**, **Pitch** (±12 st), **Width** (stereo sprea
 
 Reusable mechanics worth copying verbatim:
 - **2-second capture ring + Reach**: at 0 it stutters the immediate past; up, it *quotes* a grain
-  from anywhere in the last 2 s. **LoopBox enhancement:** Reach could quote from the **loop
+  from anywhere in the last 2 s. **Loopex enhancement:** Reach could quote from the **loop
   buffers themselves** (we already hold 16 × 45 s), giving a far deeper "memory" than a 2 s ring.
 - **Odds + Mix = safe-to-arm** (either at 0 is bit-exact bypass) — the "always loaded, silent
   until wanted" design.
@@ -251,7 +251,7 @@ punch-in throw and a stumble step compose rather than fight. Non-v1, but it shar
 insert plumbing with punch-FX, so reserve the page now.
 
 *(Bonus, further out: Forgetful's core concept — loops that "forget themselves," drifting out of
-tune / hissing / breaking up the longer since you touched them — overlaps LoopBox's Disintegration/
+tune / hissing / breaking up the longer since you touched them — overlaps Loopex's Disintegration/
 Stability. A per-track "Age/Forget" that degrades an untouched loop over time is a natural cousin.)*
 
 ### Recommendation
@@ -316,7 +316,7 @@ Vol CC65-72, Rec/OD Note 76-83, Play/Stop Note 44-51.
 ## 9. State & sessions
 
 - `get_param("state")` / `set_param("state")` round-trip (JSON; whitespace-tolerant parser).
-- Sessions (loop audio + settings) saved under `/data/UserData/schwung/loopbox-sessions`
+- Sessions (loop audio + settings) saved under `/data/UserData/schwung/loopex-sessions`
   (outside the module dir → survive reinstalls), on a `SCHED_OTHER` I/O worker (Mark pattern).
 
 ---
@@ -326,8 +326,8 @@ Vol CC65-72, Rec/OD Note 76-83, Play/Stop Note 44-51.
 - Overwrite `dsp.so` **only with the tool closed** (overtake mode off) or MoveOriginal crashes
   → power cycle.
 - **Full-exit before relaunch** (`suspend_keeps_js` resumes old code otherwise).
-- Package with GNU tar inside the Docker container; extract to `loopbox/`.
-- Install to `/data/UserData/schwung/modules/overtake/loopbox/`.
+- Package with GNU tar inside the Docker container; extract to `loopex/`.
+- Install to `/data/UserData/schwung/modules/overtake/loopex/`.
 
 ---
 
@@ -354,7 +354,7 @@ the LCXL `.syx` templates.
 1. **Fix Move connectivity** (USB-C; `move.local` not resolving — find IP/mDNS).
 2. **Minimal Overtake shell** (SDK §12): screen + 32 pad LEDs + input + clean exit, tiny DSP.
    Locks the SDK mechanics *and* the crash-safe deploy loop before the engine goes in.
-3. **Port `loopbox.c` behind the shell**; validate the **127 MB fallback ladder loads** and
+3. **Port `loopex.c` behind the shell**; validate the **127 MB fallback ladder loads** and
    how many full-chain voices actually run (the two open hardware questions).
 4. **Merge Punch-in FX** on the right 16 pads.
 5. **Wire the LaunchControl XL** via `onMidiMessageExternal`.
@@ -370,7 +370,7 @@ the LCXL `.syx` templates.
       ladder; the Move settles it (16/12/8). UI reports the achieved count.
 - [x] **Loop size → 45 s stereo** (127 MB target at 16 tracks; ladder degrades if refused).
 - [x] Hardware RAM: **16×45s stereo = 127 MB allocates AND commits on the Move** (real touched
-      pages, held live) — full spec fits, no fallback needed. Verified 2026-09-09 via the LBX
+      pages, held live) — full spec fits, no fallback needed. Verified 2026-09-09 via the LPX
       Shell probe. The fallback ladder stays as insurance but isn't triggered.
 - [ ] Hardware CPU: how many of the 16 voices sustain the full FX chain at 128fr/44.1k?
       **← the remaining gating unknown; measured during the engine port (§12 step 3).**
@@ -383,7 +383,7 @@ the LCXL `.syx` templates.
       Squash, Broken, Halo — one insert slot per track picks one of these.
 - [x] **Two send buses, each selectable from all 24 Palette effects** (replaces fixed
       delay+reverb sends); per-voice `v_sendA`/`v_sendB`. See §6.
-- [x] **Bake vs host** for Palette/Magnéto → **BAKE** (copy the DSP into `loopbox.c`);
+- [x] **Bake vs host** for Palette/Magnéto → **BAKE** (copy the DSP into `loopex.c`);
       `dlopen`-hosting stays a documented post-v1 lever. Decided 2026-09-09.
 - [ ] Smack-style Scatter re-roll → **post-v1 per-track mode** (reserve UI now). See §6.5.
 - [ ] Forgetful-style **Stumble** master glitch → **post-v1 master page** (shares punch-FX
