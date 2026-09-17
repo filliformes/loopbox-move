@@ -25,13 +25,13 @@ echo "[2/4] create container + copy sources"
 CID=$(MSYS_NO_PATHCONV=1 docker create -w /build "$IMAGE" bash -c '
   set -e
   mkdir -p dist/loopex obj
-  CF="-O3 -g -fPIC -ffast-math -Wno-misleading-indentation -Iinclude -Isrc"
+  CF="-O3 -g -fPIC -ffast-math -fno-finite-math-only -Wno-misleading-indentation -Iinclude -Isrc"
   aarch64-linux-gnu-gcc $CF -c src/loopex.c    -o obj/loopex.o
   aarch64-linux-gnu-gcc $CF -c src/palette_fx.c -o obj/palette_fx.o
   aarch64-linux-gnu-gcc $CF -c src/warps_data.c -o obj/warps_data.o
-  aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -std=c++11 -fno-exceptions -fno-rtti \
+  aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -fno-finite-math-only -std=c++11 -fno-exceptions -fno-rtti \
       -Isrc -Ivendor/clouds_engine -Ivendor/signalsmith -c src/fx_clouds.cc -o obj/fx_clouds.o
-  aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -std=c++11 -fno-exceptions -fno-rtti \
+  aarch64-linux-gnu-g++ -O3 -g -fPIC -ffast-math -fno-finite-math-only -std=c++11 -fno-exceptions -fno-rtti \
       -Isrc -Ivendor/signalsmith/include -Ivendor/signalsmith-stretch -c src/pitch_shift.cc -o obj/pitch_shift.o
   aarch64-linux-gnu-g++ -shared -o dist/loopex/dsp.so \
       obj/loopex.o obj/palette_fx.o obj/warps_data.o obj/fx_clouds.o obj/pitch_shift.o -lm -lpthread -lrt

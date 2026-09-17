@@ -363,7 +363,6 @@ typedef struct {
     atomic_int fxSel[3], fxBusy[3];     /* pending effect id per bus (A, B, punch) for the worker; busy = bus muted while it swaps */
     float sbufAL[128],sbufAR[128],sbufBL[128],sbufBR[128];
     float sretAL[128],sretAR[128],sretBL[128],sretBR[128];
-    double limEnv;
     /* Perform 2: master filter + Mood clock + creative */
     float mfCut, mfReso; int mfMode; float mfStL[6], mfStR[6]; float mfCutSm, mfResoSm;
     float mClock; int mClockMode, mClockSpot; float mclkRatioSm, mclkWet;
@@ -1302,7 +1301,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
     for(int i=0;i<NUM_PUNCH;i++){s->punchParams[i][0]=0.5f;s->punchParams[i][1]=0.5f;s->punchParams[i][2]=1.0f;s->punchParams[i][3]=1.0f;s->punchPress[i]=0.0f;}
     s->inLow=0.0f;s->inMid=0.0f;s->inMidFreq=0.5f;s->inHigh=0.0f;s->inHighFreq=0.5f;
     bq_reset(&s->inEqLo);bq_reset(&s->inEqMid);bq_reset(&s->inEqHi);bq_reset(&s->inTapeLp);bq_reset(&s->inTapeHp);
-    s->busA=pfx_create(44100.0f); s->busB=pfx_create(44100.0f); s->punchFx=pfx_create(44100.0f); s->limEnv=0.0;
+    s->busA=pfx_create(44100.0f); s->busB=pfx_create(44100.0f); s->punchFx=pfx_create(44100.0f);
     if(s->punchFx)pfx_select(s->punchFx,28);   /* Veil */
     for(int i=0;i<3;i++){ atomic_store(&s->fxSel[i],-1); atomic_store(&s->fxBusy[i],0); }
     s->undoL=(int16_t*)calloc(LOOP_SAMPLES,sizeof(int16_t)); s->undoR=(int16_t*)calloc(LOOP_SAMPLES,sizeof(int16_t));
@@ -1752,12 +1751,16 @@ static inline void tape_limiter(loopex_t *s, double *l, double *r){
 
 
 
-static inline void master_limiter(double *l, double *r, double *env){
-    double det=fmax(fabs(*l),fabs(*r));
-    const double atk=0.9285, rel=0.99977;   /* ~0.3ms attack / ~100ms release */
-    *env = (det>*env)? atk*(*env)+(1.0-atk)*det : rel*(*env)+(1.0-rel)*det;
-    const double ceil=0.90; double gr=(*env>ceil)? ceil/(*env):1.0;
-    *l=lb_tanh(*l*gr); *r=lb_tanh(*r*gr);   /* duck peaks, then smooth soft-clip */
+/* Flush-to-zero: on aarch64 the FPCR FZ bit is per-thread and -ffast-math's
+ * crtfastmath only sets it on the loading thread, not the SPI audio callback.
+ * Set it explicitly each block so decaying filter/envelope states can't fall
+ * into the denormal range and spike CPU. */
+static inline void lb_enable_ftz(void){
+#if defined(__aarch64__)
+    uint64_t v; __asm__ __volatile__("mrs %0, fpcr" : "=r"(v));
+    v |= (1ull<<24);   /* FZ */
+    __asm__ __volatile__("msr fpcr, %0" :: "r"(v));
+#endif
 }
 
 /* ---- Render Block ---- */
@@ -1845,6 +1848,7 @@ static inline void lcxl_leds(loopex_t *s){
 static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     loopex_t *s=(loopex_t*)inst;
     if(frames>128)frames=128; if(frames<0)frames=0;   /* host is fixed at 128; guard the per-block arrays */
+    lb_enable_ftz();   /* denormal flush-to-zero on the audio thread */
     struct timespec _t0; clock_gettime(CLOCK_MONOTONIC,&_t0);
     /* A finished session load hands back a settings blob — apply it here (bounded
      * string parse, no I/O), once, at block start. */
@@ -1911,11 +1915,11 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
         double inL=0.0,inR=0.0;
         if(bpaOn){ double ig=(double)s->inputGain; const int16_t *rg=s->bpaShm->slots[bpaSlot].ring;
             uint32_t idx=(bpaBase+(uint32_t)(n*2))&BPA_RING_MASK;
-            inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[idx+1]/32768.0*ig;
+            inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[(idx+1)&BPA_RING_MASK]/32768.0*ig;
             double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR; }
         else if(laOn){ double ig=(double)s->inputGain; const int16_t *rg=s->laShm->slots[laSlot].ring;
             uint32_t idx=(laBase+(uint32_t)(n*2))&LA_IN_RING_MASK;
-            inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[idx+1]/32768.0*ig;
+            inL=(double)rg[idx]/32768.0*ig; inR=(double)rg[(idx+1)&LA_IN_RING_MASK]/32768.0*ig;
             double aL=fabs(inL),aR=fabs(inR);if(aL>s->inputPeakL)s->inputPeakL=aL;if(aR>s->inputPeakR)s->inputPeakR=aR; }
         else if(useMaster){ double ig=(double)s->inputGain;
             /* Master mix bus minus our own previous-block output, so recording the
@@ -2265,7 +2269,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETVFR("v_start",loopStart,0.0,1.0) SETVFR("v_end",loopEnd,0.0,1.0)
     if(strcmp(key,"v_reverse")==0){int idx=match_enum(val,reverse_opts,2);if(idx>=0)v->reverse=(float)idx;else v->reverse=lb_clampf((float)atof(val),0.0f,1.0f);return;}
     SETVFR("v_sat",saturation,0.0,1.0) SETVFR("v_wowflut",wowFlutter,0.0,1.0)
-    SETVFR("v_send",send,0.0,1.0) SETVFR("v_sendA",send,0.0,1.0) SETVFR("v_sendB",sendB,0.0,1.0)
+    SETVFR("v_sendA",send,0.0,1.0) SETVFR("v_sendB",sendB,0.0,1.0)
     SETVFR("v_scatter",scatter,0.0,1.0) SETVFR("v_glitch",glitch,0.0,1.0) SETVFR("v_tilt",tiltEQ,-1.0,1.0)
     SETVFR("v_eqBass",eqBass,-1.0,1.0) SETVFR("v_eqPresFrq",eqPresFreq,0.0,1.0)
     SETVFR("v_eqPresAmt",eqPresAmt,-1.0,1.0) SETVFR("v_eqTreble",eqTreble,-1.0,1.0)
@@ -2523,7 +2527,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     int selIdx=s->selTrack-1;if(selIdx<0||selIdx>=NUM_VOICES)return -1;Voice *v=&s->voice[selIdx];
     GETVP("v_start",loopStart) GETVP("v_end",loopEnd)
     if(strcmp(key,"v_reverse")==0){int _i=(int)roundf(v->reverse);if(_i<0)_i=0;if(_i>1)_i=1;return snprintf(buf,buf_len,"%s",reverse_opts[_i]);}
-    GETVP("v_sat",saturation) GETVP("v_wowflut",wowFlutter) GETVP("v_send",send)
+    GETVP("v_sat",saturation) GETVP("v_wowflut",wowFlutter)
     GETVP("v_sendA",send) GETVP("v_sendB",sendB) GETVP("v_scatter",scatter)
     GETVP("v_glitch",glitch) GETVP("v_tilt",tiltEQ)
     GETVP("v_eqBass",eqBass) GETVP("v_eqPresFrq",eqPresFreq) GETVP("v_eqPresAmt",eqPresAmt)
@@ -2541,7 +2545,12 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"v_loopLen")==0)return snprintf(buf,buf_len,"%.1f",(double)v->loopLen/SR);
 
     /* State serialization: dump all global + all 16 voices' params */
-    if(strcmp(key,"state")==0){int p=0;
+    if(strcmp(key,"state")==0){int p=0; int trunc=0;
+        /* Truncation-aware APP for the state blob: a state that doesn't fit the
+         * caller's buffer must fail with -1 (host stores nothing) rather than
+         * hand back a truncated blob that restores half the voices. */
+        #undef APP
+        #define APP(...) do{ int _r=buf_len-p; if(_r>0){ int _n=snprintf(buf+p,(size_t)_r,__VA_ARGS__); if(_n<0){trunc=1;} else if(_n>=_r){p=buf_len;trunc=1;} else p+=_n; } else trunc=1; }while(0)
         #define WF(k,val) APP("%s=%.4f\n",k,(double)(val))
         #define WI(k,val) APP("%s=%d\n",k,(int)(val))
         WF("globalSat",s->globalSat);WF("masterComp",s->masterComp);
@@ -2595,7 +2604,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
             APP("v%d.ph=%d,%.4f,%d,%.4f,%d,%.4f,%d,%.4f\n",i,vi->ph[0].mode,(double)vi->ph[0].spd,vi->ph[1].mode,(double)vi->ph[1].spd,vi->ph[2].mode,(double)vi->ph[2].spd,vi->ph[3].mode,(double)vi->ph[3].spd);}
         #undef WF
         #undef WI
-        return p;}
+        return trunc?-1:p;}
 
     /* CRITICAL: return -1 for unknown keys, NOT 0 */
     return -1;
