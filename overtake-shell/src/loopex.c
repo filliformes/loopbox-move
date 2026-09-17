@@ -342,7 +342,7 @@ typedef struct {
     float globalSat,masterComp,masterLoCut,masterHiCut,masterVol;
     float preamp,overdubMode,stability;int selTrack;
     float globalWowFlut,inputMonitor,inputGain;
-    int inSource;                          /* 0 Line, 1 Master, 2-5 = Move Trk1-4, 6-9 = Schwung slot 1-4 */
+    int inSource;                          /* 0 Line, 1 Master, 2-5 = Schwung S1-4 (pub), 6-9 = Move M1-4 (link-in) */
     la_in_shm_t *laShm; int laFd; uint32_t laRead; int laSlotCur;   /* Link Audio track source (OG Move tracks) */
     bpa_shm_t *bpaShm; int bpaFd; uint32_t bpaRead; int bpaSlotCur; /* Schwung published stems source */
     float selfPrevL[128], selfPrevR[128];  /* last block's own output, subtracted when recording the master (feedback guard) */
@@ -1853,7 +1853,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     if(g_host&&g_host->mapped_memory){ micBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_in_offset);
         mixBuf=(int16_t*)(g_host->mapped_memory+g_host->audio_out_offset); }
     int useMaster=(s->inSource==1)&&mixBuf;   /* Settings p2: record the Move mix bus instead of line-in */
-    int laSlot=(s->inSource>=2&&s->inSource<=5)?(s->inSource-2):-1; uint32_t laBase=0; int laOn=0;
+    int laSlot=(s->inSource>=6&&s->inSource<=9)?(s->inSource-6):-1; uint32_t laBase=0; int laOn=0;
     if(laSlot>=0 && s->laShm && s->laShm->magic==LA_IN_MAGIC){
         la_in_slot_t *LS=&s->laShm->slots[laSlot];
         if(LS->active){ uint32_t wp=__atomic_load_n(&LS->write_pos,__ATOMIC_ACQUIRE); uint32_t need=(uint32_t)(frames*2);
@@ -1867,7 +1867,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
      * private cursor. We gate purely on write_pos advancing (the master stem carries
      * active=0 yet valid), and never advance past wp, so a stem that stops just goes
      * silent instead of looping stale samples. */
-    int bpaSlot=(s->inSource>=6&&s->inSource<=9)?(s->inSource-6):-1; uint32_t bpaBase=0; int bpaOn=0;
+    int bpaSlot=(s->inSource>=2&&s->inSource<=5)?(s->inSource-2):-1; uint32_t bpaBase=0; int bpaOn=0;
     if(bpaSlot>=0 && s->bpaShm && s->bpaShm->magic==BPA_MAGIC){
         bpa_slot_t *PS=&s->bpaShm->slots[bpaSlot];
         uint32_t wp=__atomic_load_n(&PS->write_pos,__ATOMIC_ACQUIRE); uint32_t need=(uint32_t)(frames*2);
@@ -2053,7 +2053,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
 static const char *preamp_opts[]={"Tapeless","Clean","Cass1","Cass2","VHS1","VHS2","Reel15","Reel7","Reel3","4trk","Porta","Dub","Warp"};
 #define NUM_PREAMP 13
 static const char *odmode_opts[]={"Replace","Multiply","Disint"};
-static const char *insrc_opts[]={"Line","Master","Trk1","Trk2","Trk3","Trk4","Sch1","Sch2","Sch3","Sch4"};
+static const char *insrc_opts[]={"Line","Master","S1","S2","S3","S4","M1","M2","M3","M4"};
 static const char *reverse_opts[]={"Normal","Reverse"};
 static const char *stkind_opts[]={"Tumble","Stutter","Reverse","Tape","Gate","Crush"};
 static int match_enum(const char *value, const char **opts, int count){for(int i=0;i<count;i++)if(strcmp(value,opts[i])==0)return i;return -1;}
