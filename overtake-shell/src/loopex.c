@@ -342,7 +342,7 @@ typedef struct {
     float globalSat,masterComp,masterLoCut,masterHiCut,masterVol;
     float preamp,overdubMode,stability;int selTrack;
     float globalWowFlut,inputMonitor,inputGain;
-    int inSource;                          /* 0 Line, 1 Master, 2-5 = Move Trk1-4, 6-9 = Schwung slot 1-4, 10 = Schwung master */
+    int inSource;                          /* 0 Line, 1 Master, 2-5 = Move Trk1-4, 6-9 = Schwung slot 1-4 */
     la_in_shm_t *laShm; int laFd; uint32_t laRead; int laSlotCur;   /* Link Audio track source (OG Move tracks) */
     bpa_shm_t *bpaShm; int bpaFd; uint32_t bpaRead; int bpaSlotCur; /* Schwung published stems source */
     float selfPrevL[128], selfPrevR[128];  /* last block's own output, subtracted when recording the master (feedback guard) */
@@ -1867,7 +1867,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
      * private cursor. We gate purely on write_pos advancing (the master stem carries
      * active=0 yet valid), and never advance past wp, so a stem that stops just goes
      * silent instead of looping stale samples. */
-    int bpaSlot=(s->inSource>=6&&s->inSource<=10)?(s->inSource-6):-1; uint32_t bpaBase=0; int bpaOn=0;
+    int bpaSlot=(s->inSource>=6&&s->inSource<=9)?(s->inSource-6):-1; uint32_t bpaBase=0; int bpaOn=0;
     if(bpaSlot>=0 && s->bpaShm && s->bpaShm->magic==BPA_MAGIC){
         bpa_slot_t *PS=&s->bpaShm->slots[bpaSlot];
         uint32_t wp=__atomic_load_n(&PS->write_pos,__ATOMIC_ACQUIRE); uint32_t need=(uint32_t)(frames*2);
@@ -2053,7 +2053,7 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
 static const char *preamp_opts[]={"Tapeless","Clean","Cass1","Cass2","VHS1","VHS2","Reel15","Reel7","Reel3","4trk","Porta","Dub","Warp"};
 #define NUM_PREAMP 13
 static const char *odmode_opts[]={"Replace","Multiply","Disint"};
-static const char *insrc_opts[]={"Line","Master","Trk1","Trk2","Trk3","Trk4","Sch1","Sch2","Sch3","Sch4","SchM"};
+static const char *insrc_opts[]={"Line","Master","Trk1","Trk2","Trk3","Trk4","Sch1","Sch2","Sch3","Sch4"};
 static const char *reverse_opts[]={"Normal","Reverse"};
 static const char *stkind_opts[]={"Tumble","Stutter","Reverse","Tape","Gate","Crush"};
 static int match_enum(const char *value, const char **opts, int count){for(int i=0;i<count;i++)if(strcmp(value,opts[i])==0)return i;return -1;}
@@ -2161,7 +2161,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("mClock",mClock,0.0,1.0)
     if(strcmp(key,"mClockMode")==0){ static const char*o[]={"Music","Free"}; int i=match_enum(val,o,2); s->mClockMode=(i>=0)?i:(atof(val)>0.5?1:0); return; }
     if(strcmp(key,"mClockSpot")==0){ static const char*o[]={"Pre","Post"}; int i=match_enum(val,o,2); s->mClockSpot=(i>=0)?i:(atof(val)>0.5?1:0); return; }
-    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,11); s->inSource=(i>=0)?i:(int)lb_clampf((float)atof(val),0,10); return; }
+    if(strcmp(key,"inSource")==0){ int i=match_enum(val,insrc_opts,10); s->inSource=(i>=0)?i:(int)lb_clampf((float)atof(val),0,9); return; }
     SETFR("perfTrem",perfTrem,0.0,1.0) SETFR("perfTremRate",perfTremRate,0.0,1.0) SETFR("punchWidth",punchWidth,0.0,1.0)
     if(strcmp(key,"masterEQ")==0){ int i=match_enum(val,meq_opts,MEQ_N); s->masterEQ=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MEQ_N-1); master_eq_update(s); return; }
     if(strcmp(key,"loopFiltMode")==0){ int i=match_enum(val,mfmode_opts,MF_NVOICE); s->loopFilterMode=(i>=0)?i:(int)lb_clampf((float)atof(val),0,MF_NVOICE-1); return; }
@@ -2500,7 +2500,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     if(strcmp(key,"masterLoCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterLoCut);
     if(strcmp(key,"masterHiCut")==0)return snprintf(buf,buf_len,"%d",(int)s->masterHiCut);
     GETP("masterVol",masterVol)
-    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,11); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
+    GETE("preamp",preamp,preamp_opts,NUM_PREAMP); GETE("overdubMode",overdubMode,odmode_opts,3); GETE("inSource",inSource,insrc_opts,10); GETE("loopFiltMode",loopFilterMode,mfmode_opts,MF_NVOICE);
     GETP("stability",stability) GETP("globalWowFlut",globalWowFlut) GETP("inputMonitor",inputMonitor) GETP("inputGain",inputGain)
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)
