@@ -129,7 +129,7 @@
 <body>
 <div class="wrap">
 <nav>
-  <div class="brand"><b>Loop</b>Box</div>
+  <div class="brand"><b>Loop</b>ex</div>
   <div class="tag">Manual</div>
   <a href="#top">Overview</a>
   <a href="#concept">The idea</a>
@@ -144,6 +144,7 @@
   <a href="#lfo" class="sub">Per-effect LFO</a>
   <a href="#seq">FX sequencer</a>
   <a href="#perform">Perform &amp; master</a>
+  <a href="#lcxl">External MIDI</a>
   <a href="#drift">Drift</a>
   <a href="#sessions">Sessions</a>
   <a href="#cheat">Cheat sheet</a>
@@ -161,7 +162,7 @@
     <span class="pill"><b>16</b> punch-in FX</span>
     <span class="pill"><b>29</b> send effects</span>
     <span class="pill"><b>4</b> reverbs</span>
-    <span class="pill"><b>32</b> session slots</span>
+    <span class="pill"><b>64</b> session slots</span>
     <span class="pill">Schwung Overtake</span>
   </div>
   <p class="muted" style="margin-top:18px">Built for the <a href="https://github.com/charlesvestal/schwung">Schwung</a> framework on Ableton Move. Free &amp; open source: <a href="https://github.com/filliformes/loopex-move">source on GitHub</a>.</p>
@@ -263,7 +264,7 @@
 <section id="tape">
   <div class="eyebrow">Input</div>
   <h2>What goes onto the tape</h2>
-  <p class="lede">Everything you record passes through the input stage first, so set it before you play. The <b>Input FX</b> menu (track button 1) holds the monitor level, the tape style, input gain and a three-band EQ. The <b>Input Tape</b> page (Capture button) is the machine itself: 13 styles including a true <b>Tapeless</b> bypass, drive, wow, flutter, HF rolloff, low cut, hiss and <b>Generations</b>, the sound of repeated dubbing. Whatever you dial here is printed onto the loop. By default the source is the line/mic input, but Settings page 2 can switch it to the <b>Master</b> mix so a loop records the whole Move output, other tracks included; it subtracts its own signal so it never feeds back.</p>
+  <p class="lede">Everything you record passes through the input stage first, so set it before you play. The <b>Input FX</b> menu (track button 1) holds the monitor level, the tape style, input gain and a three-band EQ. The <b>Input Tape</b> page (Capture button) is the machine itself: 13 styles including a true <b>Tapeless</b> bypass, drive, wow, flutter, HF rolloff, low cut, hiss and <b>Generations</b>, the sound of repeated dubbing. Whatever you dial here is printed onto the loop. By default the source is the line/mic input, but <b>InSrc</b> on Settings page 1 can switch it to the <b>Master</b> mix (the whole Move output, minus Loopex's own signal so it never feeds back) or to any single Schwung or Move track in isolation — see the record-source section below.</p>
 </section>
 
 <section id="loops">
@@ -357,7 +358,7 @@
     <div class="card"><h3>Ducking pump</h3><p>K7–K8: a tempo-synced sidechain pump. It ducks on every beat division and breathes back up: from a gentle swell to a hard rhythmic gate.</p></div>
     <div class="card"><h3>Tape transport</h3><p>The <kbd>◀ ▶</kbd> arrows brake the whole master to a stop or wind it up to a tone, then ease back to speed on release. Fully organic.</p></div>
   </div>
-  <h3>Output character (Settings page 1)</h3>
+  <h3>Output character (Settings page 2)</h3>
   <p>An end-of-chain colour section: a <b>character EQ</b> modelling ten hardware units, a <b>bus glue compressor</b>, and an <b>analog tape limiter</b>.</p>
   <div class="scroll"><table class="thin">
     <tr><th>Character</th><th>Voice</th></tr>
@@ -372,9 +373,20 @@
     <tr><td>Juno</td><td>chorus-console: bright, glassy</td></tr>
     <tr><td>Console</td><td>neutral glue colour</td></tr>
   </table></div>
-  <h3>Loop Filter and record source (Settings page 2)</h3>
-  <p><b>Loop Filter</b> gives every loop the same twelve analog voicings as the Master Filter (Clean, SEM, MS-20, Steiner, four ladders, Prophet, Oberheim, Diode, K35, Vintage): the loop Filter knob sweeps and its low-pass takes on the chosen model, resonance from Reso. <b>Input source</b> switches recording between the line/mic input and the Move’s master mix, so a loop can capture the whole Move output.</p>
-  <p class="muted">Settings page 2 also holds arm threshold, overdub mode, root note, MIDI, and the punch-FX stereo width (mono → wide, per effect).</p>
+  <h3>Loop Filter and record source (Settings page 1)</h3>
+  <p><b>Loop Filter</b> gives every loop the same twelve analog voicings as the Master Filter (Clean, SEM, MS-20, Steiner, four ladders, Prophet, Oberheim, Diode, K35, Vintage): the loop Filter knob sweeps and its low-pass takes on the chosen model, resonance from Reso. <b>Input source</b> (<b>InSrc</b>) chooses what each new recording samples: <b>Line</b> (the line/mic input, default), <b>Master</b> (the whole Move mix, minus Loopex’s own output so it never feeds back), <b>S1–S4</b> (Schwung’s four mixer slots) or <b>M1–M4</b> (the four OG Move hardware tracks). The per-track sources arrive over <b>Ableton Link Audio</b> — the host publishes its slots on <code>/schwung-pub-audio</code> and reconstructs the Move tracks on <code>/schwung-link-in</code>, each as an isolated stereo stem — so a loop can sample any single Schwung or Move track on its own, not just the summed mix (needs the host’s <code>link_audio_publish</code>, on by default).</p>
+  <p class="muted">Settings page 1 also holds arm threshold, overdub mode, root note, input monitoring, and MIDI In / MIDI Out; page 2 adds the punch-FX stereo width (mono → wide, per effect).</p>
+</section>
+
+<section id="lcxl">
+  <div class="eyebrow">External MIDI</div>
+  <h2>Play it from a LaunchControl XL</h2>
+  <p class="lede">A Novation LaunchControl XL drives all sixteen loops from hardware. <b>MIDI In</b> (Settings page 1) enables external control; <b>MIDI Out</b> (Settings page 1) mirrors each loop’s transport back to the LCXL’s LEDs, sent on <b>MIDI channel 2</b> so its buttons never collide with the Move’s own channel-1 pads.</p>
+  <div class="grid g2">
+    <div class="card"><h3>Buttons</h3><p><b>Track Focus</b> (row 1) records, plays and pauses each loop; <b>Track Control</b> (row 2) mutes and unmutes it. The LEDs follow: red recording, green playing, amber paused, red on the control button when muted.</p></div>
+    <div class="card"><h3>Knobs &amp; faders</h3><p>Per column the top knob is <b>Loop Speed</b>, then <b>Filter</b> and <b>Pan</b>, and the fader is <b>Volume</b> — for that loop.</p></div>
+  </div>
+  <p class="muted">Two SysEx templates ship at the repo root — <code>BlackBox 1-8.syx</code> (loops 1–8) and <code>BlackBox 9-16.syx</code> (loops 9–16). Load them onto the LCXL and set both to MIDI channel 2; Loopex accepts either range at once.</p>
 </section>
 
 <section id="drift">

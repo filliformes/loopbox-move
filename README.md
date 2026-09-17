@@ -140,12 +140,30 @@ cores 0–2, never on the audio callback. Sessions live in
 - **Perform menu:** Stumble (probabilistic step glitch), Jump, Scan, Dropout.
 - **MIDI keyboard:** 8-voice polyphony playing a loop chromatically through its full FX
   chain. **Off by default** (Settings → MIDI) so Move tracks' MIDI-out cannot trigger loops.
-- **Settings:** Master Out, global sat (to 2.0), character EQ, glue, tape limiter, master Lo/Hi cut,
-  **input source** (Line or the Move master mix), **loop filter** (the 12 Master-filter voicings applied
-  to every loop's low-pass), punch width, arm threshold, overdub mode, root note, MIDI.
-- **Record source:** line/mic by default, or the Move's whole master mix (Settings → InSrc) to loop
-  other tracks and the full Move output; it subtracts its own output so the master feedback can't run away.
+- **Settings (two pages):** page 1 is behaviour and I/O — arm threshold, overdub mode, **loop filter**
+  (the 12 Master-filter voicings applied to every loop's low-pass), root note, input monitoring,
+  **input source** (see below), MIDI In and MIDI Out. Page 2 is the master — Master Out, master Lo/Hi
+  cut, punch width, character EQ, global sat (to 2.0), glue and tape limiter.
+- **Record source (Settings p1 → InSrc):** `Line · Master · S1 · S2 · S3 · S4 · M1 · M2 · M3 · M4`.
+  **Line** is the line/mic input (default). **Master** is the Move's whole master mix, minus Loopex's
+  own output so it can never feed back. **S1–S4** are Schwung's own four mixer slots and **M1–M4** the
+  four OG Move hardware tracks, each captured as an isolated stereo stem over **Ableton Link Audio**:
+  the host publishes its slots on `/schwung-pub-audio` and reconstructs the Move tracks on
+  `/schwung-link-in`, and Loopex reads the selected channel (needs the host's `link_audio_publish`, on
+  by default). So a loop can sample any single Schwung or Move track on its own, not just the summed mix.
 - **Undo** reverts the last overdub exactly (each overwritten sample is saved as it goes), else restores the last cleared loop.
+
+### LaunchControl XL (external MIDI)
+A Novation LaunchControl XL can drive all sixteen loops. **MIDI In** (Settings p1 → `MIDI`) enables
+external control; **MIDI Out** (Settings p1 → `MidiO`) mirrors each loop's transport back to the LCXL's
+LEDs, sent on **MIDI channel 2** so the notes never collide with the Move's own channel-1 pads.
+
+- **Track Focus buttons (row 1)** — record / play / pause per loop; **Track Control buttons (row 2)** —
+  mute / unmute.
+- Per column the **top knob is Loop Speed**, then Filter, then Pan, and the **fader is Volume**, for
+  that loop.
+- Two SysEx templates ship at the repo root — `BlackBox 1-8.syx` (loops 1–8) and `BlackBox 9-16.syx`
+  (loops 9–16); set both to **MIDI channel 2** so the LED feedback lands.
 
 ---
 

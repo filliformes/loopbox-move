@@ -123,8 +123,8 @@ Knobs 5–8 only follow a pad while it is physically held; latched pads keep run
 | Track 1 | **Input FX** | Monitor | Tape Style | Input Gain | Low | Mid | Mid Freq | High | High Freq |
 | Track 2 | **Perform** | Stumble Mix | Stumble Step | Stumble Odds | Stumble Size | Stumble Reach | Stumble Kind | Jump | Scan |
 | Track 3 | **Send FX** | A FX | A Amount | A Macro | A Drift | B FX | B Amount | B Macro | B Drift |
-| Track 4 | **Settings** | Master Vol | gSat (to 2.0) | Lo Cut (20–1000 Hz) | Hi Cut | Arm Threshold | ODub mode | Root | MIDI |
-| Track 4 (page 2) | **Settings 2** | … | Punch Width | **InSrc** (Line/Master) | **LpFlt** (loop filter) | | | | |
+| Track 4 | **Settings** | Arm Threshold | ODub mode | **LpFlt** (loop filter) | Root | In Monitor | **InSrc** (input source) | MIDI In | MIDI Out |
+| Track 4 (page 2) | **Settings 2** | Master Vol | Lo Cut (20–1000 Hz) | Hi Cut | Punch Width | Character | gSat (to 2.0) | Glue | Limit |
 | Capture | **Input Tape** | Tape Style | Drive | Wow | Flutter | HF | Lo Cut | Hiss | Generations |
 | Sample | **Drift** | Drift | Rate | Size | FBk | Supr | Blur | Damp | Mix |
 | ≡ (Menu) | **Sessions** | Slot | Save | Load | Del | | | | |
@@ -150,7 +150,16 @@ Press the same button again, or **Back**, to close a menu. Enums step once per f
   tape-style instead of clicking.
 - **Perform** — Stumble (a probabilistic step glitcher), plus **Jump** (crossfaded random jump on every playing loop) and **Scan** (a fast sweep) as buttons.
 - **Drift** (Sample button) — a global drifting-delay memory in the spirit of Soma COSMOS. Four coprime-length delay lines, each read at a slowly drifting tap, feed back through a matrix that morphs from self-feedback to a normalised Hadamard cross-mix. The loop mix feeds it, the memory recirculates, and because the line lengths are coprime and each has its own asynchronous LFO, the recombination never lands on an exact repeat. It sits in the master chain just before the pump, so the ambient layer picks up the character EQ, glue and limiter. Feedback is capped below unity, so the tail always fades (up to a few minutes at maximum), and a **silence bleed** clears an abandoned tail after about eight seconds with no input. Knobs: **Drift** (how much loop mix is fed in) · **Rate** (tap-drift speed) · **Size** (tap length, shimmer to long hall) · **FBk** (memory sustain, below unity fades, near unity holds) · **Supr** (loud new input erases old memory: play over to replace) · **Blur** (self-feedback → full cross-mix) · **Damp** (high-frequency damping of the tail) · **Mix** (wet level into the master). Drift and Mix start at zero, so it is silent until dialled in; it saves with the session.
-- **MIDI** — off by default so Move's track MIDI cannot trigger loops. On, an external keyboard plays the selected loop chromatically with 8-voice polyphony.
+- **InSrc** (input source, Settings page 1) — what each new recording samples:
+  `Line · Master · S1 · S2 · S3 · S4 · M1 · M2 · M3 · M4`. **Line** is the line/mic input (default).
+  **Master** is the Move's whole master mix, minus Loopex's own output so the master can never feed back.
+  **S1–S4** are Schwung's own four mixer slots and **M1–M4** the four OG Move hardware tracks, each
+  captured as its own isolated stereo stem over **Ableton Link Audio** — the host publishes its slots on
+  `/schwung-pub-audio` and reconstructs the Move tracks on `/schwung-link-in`, and Loopex records the
+  selected channel. This lets a loop sample any single Schwung or Move track in isolation, not just the
+  summed mix. It needs the host's `link_audio_publish` (on by default).
+- **MIDI In** — off by default so Move's track MIDI cannot trigger loops. On, an external keyboard plays the selected loop chromatically with 8-voice polyphony, and a LaunchControl XL drives all sixteen loops (section 9).
+- **MIDI Out** — mirrors each loop's transport state to the LaunchControl XL's LEDs (section 9).
 
 ---
 
@@ -207,7 +216,24 @@ Master:      sum of loops + MIDI poly -> input monitor -> + Palette send returns
 
 ---
 
-## 9. Shortcut sheet
+## 9. External MIDI — LaunchControl XL
+
+A Novation LaunchControl XL can play all sixteen loops from hardware. **MIDI In** (Settings page 1 → **MIDI**) turns external control on; **MIDI Out** (Settings page 1 → **MidiO**) mirrors each loop's transport state back to the LCXL's LEDs. The LED feedback is sent on **MIDI channel 2** so its Track Focus/Control notes never collide with the Move's own channel-1 pads — set the two templates to channel 2 to receive it.
+
+| LCXL control | Action |
+|---|---|
+| **Track Focus buttons (row 1)** | record / play / pause the loop (per column) |
+| **Track Control buttons (row 2)** | mute / unmute the loop |
+| **Top knob** | Loop Speed |
+| **Middle / bottom knob** | Filter · Pan |
+| **Fader** | Volume |
+
+- LED colours mirror the loop: red while recording, green while playing/overdubbing, amber while paused; the Track Control LED is red when the loop is muted.
+- Two SysEx templates ship at the repo root — `BlackBox 1-8.syx` (loops 1–8) and `BlackBox 9-16.syx` (loops 9–16). Load them onto the LCXL and set both to **MIDI channel 2**. Loopex accepts both template ranges at once, so it works whichever is active.
+
+---
+
+## 10. Shortcut sheet
 
 | Keys | Action |
 |---|---|
