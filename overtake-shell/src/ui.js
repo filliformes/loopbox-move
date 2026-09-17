@@ -177,10 +177,10 @@ const MENU_DEFS = [
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'inputMonitor', lo:0, hi:1, lbl:'InMon' },
       { k:'inSource', opts:['Line','Master','Trk1','Trk2','Trk3','Trk4'], lbl:'InSrc' },
       { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },  { k:'midiOut', opts:['Off','On'], lbl:'MidiO' },
-      { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'globalSat', lo:0, hi:2, lbl:'gSat' },
-      { k:'masterEQ', opts:MEQ_NAMES, lbl:'Char' },   { k:'masterGlue', lo:0, hi:1, lbl:'Glue' },
-      { k:'tapeLimit', lo:0, hi:1, lbl:'Limit' },     { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 },
+      { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 },
       { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 }, { k:'punchWidth', lo:0, hi:1, lbl:'PWide' },
+      { k:'masterEQ', opts:MEQ_NAMES, lbl:'Char' },   { k:'globalSat', lo:0, hi:2, lbl:'gSat' },
+      { k:'masterGlue', lo:0, hi:1, lbl:'Glue' },     { k:'tapeLimit', lo:0, hi:1, lbl:'Limit' },
     ],
     [ /* 4 — Tape (Capture button): the record-path tape machine, Magneto-style */
       { k:'preamp', opts:PREAMP_NAMES, lbl:'Tape' },  { k:'tapeDrive', lo:0, hi:1, lbl:'Drive' },
