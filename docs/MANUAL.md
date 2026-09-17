@@ -59,7 +59,7 @@ Loops are free-running: they do not need to share a length or a downbeat.
 
 ### 2.4 Selecting and pages
 
-Press a **step** to select that loop: the screen shows its waveform with the active playheads riding over it. Press the same step again to cycle through its four knob pages. **Up** and **Down** move between pages from anywhere, including the waveform view.
+Press a **step** to select that loop: the screen shows its waveform with the active playheads riding over it. Press the same step again to cycle through its five knob pages. **Up** and **Down** move between pages from anywhere, including the waveform view.
 
 | Page | K1 | K2 | K3 | K4 | K5 | K6 | K7 | K8 |
 |---|---|---|---|---|---|---|---|---|
@@ -67,6 +67,7 @@ Press a **step** to select that loop: the screen shows its waveform with the act
 | **P2 Texture** | Pitch | Reso | Sat | Comp | Wow/Flutter | Scatter | Seed | Send B |
 | **P3 Tone** | Bass | Mid Freq | Mid Gain | Treble | Tilt | Attack | Decay | Heads ▸ |
 | **P4 Playheads** | H1 mode | H1 speed | H2 mode | H2 speed | H3 mode | H3 speed | H4 mode | H4 speed |
+| **P5 HeadMix** | H1 Vol | H1 Pan | H2 Vol | H2 Pan | H3 Vol | H3 Pan | H4 Vol | H4 Pan |
 
 - **Speed** — playback rate, ±2 octaves in 0.1-semitone steps. Pitch and tempo move together, like tape.
 - **Pitch** — an independent pitch shift, −24 to +24 semitones, that leaves the tempo alone. It is a Signalsmith Stretch phase-vocoder shifter; its latency is cancelled by nudging the loop's playheads, so a shifted loop stays in time. At exactly 0 it is fully bypassed.
@@ -86,6 +87,10 @@ Press a **step** to select that loop: the screen shows its waveform with the act
 Every loop can be read by four heads at once. Modes are **Off · Fwd · Bwd · Ping · Jump**; speeds run 0.25× to 4× in 0.1-semitone steps. **Jump** plays forward but leaps to a random position at random intervals, each leap crossfaded. Head 1 is the main head (Scatter, Seed and scrub drive it). Turning a head on restarts it at the loop start. Heads sum with 1/√n normalisation. Any head that moves position (jog, pitch-shift nudge, scatter, a Jump leap) does so through a short crossfade.
 
 In the Playheads page, **touch a head's knob and the jog wheel moves that head** along the waveform. Everywhere else the jog **scrubs** the selected loop, tape-style: the head travels for a moment and you hear it, even on a paused loop.
+
+### 2.6 HeadMix
+
+The fifth page gives every playhead its own **Volume** and **Pan** (a balance: centre is unity, full pan mutes the opposite side). **H1 Vol/Pan are the same controls as loop page 1** — head 1 is the main head, so its level and position *are* the loop's. Heads 2–4 get independent gain and pan, applied per head before the heads sum, defaulting to unity/centre so a loop sounds unchanged until you move them. All of it saves with the session and travels when you clone a slot.
 
 ---
 

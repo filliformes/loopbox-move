@@ -138,7 +138,7 @@
   <a href="#screen">The screen</a>
   <a href="#tape">Input tape</a>
   <a href="#loops">Loops &amp; playheads</a>
-  <a href="#pages" class="sub">The four loop pages</a>
+  <a href="#pages" class="sub">The five loop pages</a>
   <a href="#sends">Sends (Palette)</a>
   <a href="#punch">Punch-in FX</a>
   <a href="#lfo" class="sub">Per-effect LFO</a>
@@ -272,7 +272,7 @@
   <h2>Sixteen tapes, four heads each</h2>
   <p>Each loop records up to 45 seconds of stereo audio and plays back on its own clock. Three overdub modes shape how layers build: <b>Replace</b>, <b>Multiply</b> (the default; endless decayed layering), and <b>Disintegration</b> (the loop's own effects re-bake each pass, so it slowly falls apart).</p>
   <p>Every loop is read by up to <b>four playheads at once</b>, each with a mode: <b>Off · Fwd · Bwd · Ping · Jump</b>: and its own speed from 0.25× to 4×. <b>Jump</b> leaps to a random position at random intervals, crossfaded. One recording becomes a canon, a drone, or a shifting cloud. Heads sum with equal-power normalisation so stacking never clips, and any head that jumps crossfades.</p>
-  <h3 id="pages">The four loop pages</h3>
+  <h3 id="pages">The five loop pages</h3>
   <p class="muted">Select a loop with a step, then <kbd>Up</kbd>/<kbd>Down</kbd> to move between pages. Speed re-pitches like tape (pitch + tempo together); Pitch shifts independently, leaving tempo alone.</p>
   <div class="scroll"><table>
     <tr><th>Page</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th></tr>
@@ -280,7 +280,9 @@
     <tr><td>P2 · Texture</td><td>Pitch</td><td>Reso</td><td>Sat</td><td>Comp</td><td>Wow/Flut</td><td>Scatter</td><td>Seed</td><td>Send B</td></tr>
     <tr><td>P3 · Tone</td><td>Bass</td><td>MidF</td><td>MidGain</td><td>Treble</td><td>Tilt</td><td>Attack</td><td>Decay</td><td>Heads ▸</td></tr>
     <tr><td>P4 · Heads</td><td>H1 mode</td><td>H1 spd</td><td>H2 mode</td><td>H2 spd</td><td>H3 mode</td><td>H3 spd</td><td>H4 mode</td><td>H4 spd</td></tr>
+    <tr><td>P5 · HeadMix</td><td>H1 Vol</td><td>H1 Pan</td><td>H2 Vol</td><td>H2 Pan</td><td>H3 Vol</td><td>H3 Pan</td><td>H4 Vol</td><td>H4 Pan</td></tr>
   </table></div>
+  <p class="muted">HeadMix gives each of the four playheads its own volume and pan (a balance — centre is unity). H1's Vol/Pan are the loop's main level and position (the same controls as page 1); heads 2–4 are independent, defaulting to unity/centre so a loop is unchanged until you touch them.</p>
   <div class="grid g3">
     <div class="card"><h3>Seed</h3><p>A seeded re-order of the loop's slices (2/4/8/16, some reversed). The knob <em>is</em> the seed: every position is a different, repeatable mangle. Click-free.</p></div>
     <div class="card"><h3>Scatter</h3><p>Stochastic slice jumps with crossfades: from gentle stutter to full shuffle.</p></div>

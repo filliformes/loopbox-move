@@ -45,7 +45,7 @@ speed — one recording becomes a canon, a drone, or a ping-ponging texture.
 - Head 1 is the main head — Scatter, Seed, scrub and Jump all drive it.
 - In the Playheads page, **touch a head's knob and the jog wheel moves that head** along the waveform.
 
-### The four loop pages
+### The five loop pages
 Navigate with **Down** (next) and **Up** (previous).
 
 | Page | Knobs |
@@ -54,6 +54,7 @@ Navigate with **Down** (next) and **Up** (previous).
 | **P2 · Texture** | **Pitch** · **Reso** · Sat · Comp · Wow/Flutter · Scatter · **Seed** · Send B |
 | **P3 · Tone** | Studer **Bass · MidF · MidGain · Treble** · Tilt · Attack · Decay · **Heads ▸** |
 | **P4 · Playheads** | H1 mode/speed · H2 · H3 · H4 |
+| **P5 · HeadMix** | per-head **Vol/Pan** — H1 (mirrors P1 Vol/Pan) · H2 · H3 · H4 |
 
 - **Speed** — playback rate, ±2 octaves in 0.1-semitone steps (pitch and tempo together, like tape).
 - **Pitch** — an independent shift, −24 to +24 semitones, tempo untouched: a Signalsmith Stretch
@@ -188,7 +189,7 @@ LEDs, sent on **MIDI channel 2** so the notes never collide with the Move's own 
 |---------|--------|
 | **8 knobs** | selected-track params (or menu / punch params) |
 | **Touch a knob** | full 8-knob page on screen (~5 s) |
-| **Up / Down** | previous / next loop page (P1–P4) |
+| **Up / Down** | previous / next loop page (P1–P5) |
 | **Jog wheel** | scrub the selected loop (audible, tape-style) · in P4 moves the touched head |
 | **Capture** | Input Tape menu |
 | **✕ (Delete)** | tap = run/stop the FX sequencer · hold = pattern view + FX Seq page |
