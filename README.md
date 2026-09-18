@@ -131,8 +131,11 @@ cores 0–2, never on the audio callback. Sessions live in
 
 ### Perform, MIDI and I/O
 - **Perform menu:** Stumble (probabilistic step glitch), Jump, Scan, Dropout.
-- **MIDI keyboard:** 8-voice polyphony playing a loop chromatically through its full FX
-  chain. **Off by default** (Settings → MIDI) so Move tracks' MIDI-out cannot trigger loops.
+- **External MIDI (Settings → MIDI):** three modes — **Off** (default) ignores external MIDI;
+  **Keys** plays the loops from a MIDI keyboard (8-voice polyphony, each MIDI channel driving a
+  loop chromatically through its full FX chain: channel 1 → loop 1, channel 2 → loop 2, … — but
+  see [Known limitations](#known-limitations)); **Ctrl** hands external MIDI to the LaunchControl
+  XL control surface (below). Off by default so Move tracks' MIDI-out can't trigger loops.
 - **Settings (two pages):** page 1 is behaviour and I/O — arm threshold, overdub mode, **loop filter**
   (the 12 Master-filter voicings applied to every loop's low-pass), root note, input monitoring,
   **input source** (see below), MIDI In and MIDI Out. Page 2 is the master — Master Out, master Lo/Hi
@@ -147,9 +150,10 @@ cores 0–2, never on the audio callback. Sessions live in
 - **Undo** reverts the last overdub exactly (each overwritten sample is saved as it goes), else restores the last cleared loop.
 
 ### LaunchControl XL (external MIDI)
-A Novation LaunchControl XL can drive all sixteen loops. **MIDI In** (Settings p1 → `MIDI`) enables
-external control; **MIDI Out** (Settings p1 → `MidiO`) mirrors each loop's transport back to the LCXL's
-LEDs, sent on **MIDI channel 2** so the notes never collide with the Move's own channel-1 pads.
+A Novation LaunchControl XL can drive all sixteen loops. Set **MIDI** (Settings p1) to **`Ctrl`** to
+route external MIDI to the surface; **MIDI Out** (Settings p1 → `MidiO`) mirrors each loop's transport
+back to the LCXL's LEDs, sent on **MIDI channel 2** so the notes never collide with the Move's own
+channel-1 pads.
 
 - **Track Focus buttons (row 1)** — record / play / pause per loop; **Track Control buttons (row 2)** —
   mute / unmute.
@@ -260,6 +264,19 @@ overtake-shell/            <- the active module
 OVERTAKE-SDK.md            reverse-engineered Overtake SDK reference
 design-spec.md             full design rationale
 ```
+
+---
+
+## Known limitations
+
+- **MIDI-keyboard play reaches 4 loops, not 16.** In **Keys** mode each MIDI channel plays its
+  own loop, and the module maps all sixteen (channel *n* → loop *n*). But a Schwung Overtake
+  module only receives external MIDI through the host's **four forwarding slots**, so only four
+  channels arrive at once — the other twelve have no slot to ride in on. To play loops 1–4, set
+  four Schwung slots (or Move tracks) to receive channels 1–4 with **Forward = Auto**. This is a
+  host delivery limit, not a module one (`MOVE_MIDI_SOURCE_FX_BROADCAST` is audio-FX-only, so a
+  synth-role module can't tap it); lifting it to all 16 needs Schwung's `ext_midi_remap`
+  passthrough enabled host-side, after which the existing mapping handles all sixteen unchanged.
 
 ---
 
