@@ -304,10 +304,9 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 ### Other software instruments (same author)
 - **Res** and **Essaim** — the Quartz and Prism reverbs: one dual-mode 8-line Hadamard FDN whose
   two feedback colourings fill the roles of Ableton's `abl.dsp.quartz~` and `abl.dsp.prism~` Max
-  objects. https://github.com/filliformes/res · https://github.com/filliformes/essaim
+  objects.
 - **Phasma** — the Veil reverb: a modulated Householder FDN (Signalsmith-style tank with
   CloudSeed-style modulated diffusers) carrying Prism's band-split colouring.
-  https://github.com/filliformes/Phasma
 
 ### Other Schwung modules
 - **Performance FX** — Charles Vestal. The framework author's pressure punch-in FX module,
