@@ -225,6 +225,7 @@ typedef struct {
     float filterSm; double volSm, panSm;  /* 10ms smoothing on the steppy knobs */
     int savedLoopLen;                     /* clear-undo: last loop length before a clear */
     float djReso;                         /* DJ filter resonance (Q) */
+    float djWet;                          /* DJ filter dry->filtered blend: 0 at centre so LP<->HP is seamless */
     float comp, clock;                    /* per-track compressor amount; clock = independent PITCH shift in octaves (-2..2), not the playback rate */
     void *ps; float psInL[128], psInR[128], psOutL[128], psOutR[128];   /* Signalsmith Stretch (pitch_shift.cc), one block late */
     int psActive, psWarm, psLat, psNudge; double psMix; float psCache;            /* engage state: warm-up count, latency, dry/wet ramp */
@@ -567,20 +568,30 @@ static void *session_worker(void *arg){
 static inline float mf_run(float *st, float x, float g, float reso, int voicing);
 static void dj_filter_update(Voice *v) {
     double f=(double)v->filterSm;
-    int newMode = (f < 0.485) ? -1 : ((f > 0.515) ? 1 : 0);
-    if(newMode!=v->djMode){ if(newMode<0){ bq_reset(&v->djLpA); v->lfModeCache=-99; } else if(newMode>0)bq_reset(&v->djHpA); v->djMode=newMode; }
+    /* LP left of centre, HP right; both fade to fully dry at noon so the LP<->HP swap
+     * happens while the filter contributes nothing -> no click. Centre band = +/-0.08. */
+    int newMode = (f <= 0.5) ? -1 : 1;
+    if(newMode!=v->djMode){   /* switching sides at noon, where the wet blend is ~0, so a reset here is inaudible */
+        if(newMode<0){ bq_reset(&v->djLpA); v->lfModeCache=-99; for(int i=0;i<6;i++){ v->lfStL[i]=0.0f; v->lfStR[i]=0.0f; } }
+        else bq_reset(&v->djHpA);
+        v->djMode=newMode;
+    }
     double Q=0.70710678+(double)v->djReso*5.3;   /* resonance: Butterworth -> ~6 */
-    if(newMode<0){ double lpF=200.0*pow(18000.0/200.0, f/0.485); if(lpF>18000.0)lpF=18000.0; bq_set_lp(&v->djLpA,lpF,Q); v->lfG=tanf((float)(M_PI*lpF/SR)); }
-    else if(newMode>0){ double t=(f-0.515)/0.485; double hpF=20.0*pow(2000.0/20.0, t); if(hpF>2000.0)hpF=2000.0; bq_set_hp(&v->djHpA,hpF,Q); }
+    if(newMode<0){ double lpF=200.0*pow(18000.0/200.0, f/0.5); if(lpF>18000.0)lpF=18000.0; bq_set_lp(&v->djLpA,lpF,Q); v->lfG=tanf((float)(M_PI*lpF/SR)); }
+    else { double t=(f-0.5)/0.5; double hpF=20.0*pow(2000.0/20.0, t); if(hpF>2000.0)hpF=2000.0; bq_set_hp(&v->djHpA,hpF,Q); }
+    double d=fabs(f-0.5); v->djWet=(float)(d>=0.08?1.0:d/0.08);   /* 0 dry at centre -> 1 filtered by +/-0.08 */
 }
 static inline void dj_filter_stereo(Voice *v, int voicing, double *l, double *r) {
+    double dl=*l, dr=*r, fl, fr;
     if(v->djMode<0){                       /* low-pass side runs the chosen analog voicing */
         if(voicing<0)voicing=0; if(voicing>=MF_NVOICE)voicing=MF_NVOICE-1;
         if(voicing!=v->lfModeCache){ for(int i=0;i<6;i++){ v->lfStL[i]=0.0f; v->lfStR[i]=0.0f; } v->lfModeCache=voicing; }
-        *l=(double)mf_run(v->lfStL,(float)*l,v->lfG,v->djReso,voicing);
-        *r=(double)mf_run(v->lfStR,(float)*r,v->lfG,v->djReso,voicing);
+        fl=(double)mf_run(v->lfStL,(float)dl,v->lfG,v->djReso,voicing);
+        fr=(double)mf_run(v->lfStR,(float)dr,v->lfG,v->djReso,voicing);
     }
-    else if(v->djMode>0){ *l=bq_L(&v->djHpA,*l); *r=bq_R(&v->djHpA,*r); }
+    else { fl=bq_L(&v->djHpA,dl); fr=bq_R(&v->djHpA,dr); }
+    double w=(double)v->djWet;              /* blend dry->filtered; w=0 at noon makes the LP/HP swap seamless */
+    *l=dl+(fl-dl)*w; *r=dr+(fr-dr)*w;
 }
 
 /* ---- Studer 962 EQ ---- */
@@ -1298,7 +1309,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         v->saturation=0.0f;v->wowFlutter=0.0f;v->send=0.0f;v->glitch=0.0f;
         v->tiltEQ=0.0f;v->decay=1.0f;v->eqBass=0.0f;v->eqPresFreq=0.5f;v->eqPresAmt=0.0f;v->eqTreble=0.0f;
         v->flutNextMax=0.5;v->rng=12345+i*7919;v->glLastSlice=-1;
-        v->djReso=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;v->lfModeCache=-99;v->lfG=0.5f;
+        v->djReso=0.0f;v->djWet=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;v->lfModeCache=-99;v->lfG=0.5f;
         v->comp=0.0f;v->clock=0.0f;v->psCache=-99.0f;v->psActive=0;v->psMix=0.0;v->psNudge=0;
         v->ps=ps_create(44100.0f,128,(i*512)/NUM_VOICES);   /* staggered so the 16 STFTs do not land in one callback */
         v->filterSm=0.5f;v->volSm=(double)v->volume;v->panSm=0.0;
@@ -1391,10 +1402,10 @@ static void on_midi(void *inst, const uint8_t *msg, int len, int source) {
     if(source==MOVE_MIDI_SOURCE_INTERNAL) return;
 
     if(source==MOVE_MIDI_SOURCE_EXTERNAL) {
-        if(!s->midiIn) return;   /* external MIDI off by default (Move track MIDI-out would play loops) */
+        if(s->midiIn!=1) return;   /* poly plays only in Keys mode (Off=ignore, Ctrl=LCXL handled by ui.js) */
         /* MIDI keyboard playing: ch1 -> selected loop, ch2..16 -> loops 2..16; 8-voice poly */
         int chan = msg[0] & 0x0F;
-        int loopIdx = (chan==0) ? (s->selTrack-1) : chan;
+        int loopIdx = chan;   /* Keys: MIDI channel 1..16 -> loop 1..16, directly */
         if(status==0x90 && d2>0) { poly_note_on(s, loopIdx, (int)d1, (int)d2); return; }
         if(status==0x80 || (status==0x90 && d2==0)) { poly_note_off(s, (int)d1); return; }
         return;
@@ -2079,6 +2090,7 @@ static const char *preamp_opts[]={"Tapeless","Clean","Cass1","Cass2","VHS1","VHS
 #define NUM_PREAMP 13
 static const char *odmode_opts[]={"Replace","Multiply","Disint"};
 static const char *insrc_opts[]={"Line","Master","S1","S2","S3","S4","M1","M2","M3","M4"};
+static const char *midiin_opts[]={"Off","Keys","Ctrl"};   /* external MIDI: ignore / keyboard poly / LCXL control */
 static const char *reverse_opts[]={"Normal","Reverse"};
 static const char *stkind_opts[]={"Tumble","Stutter","Reverse","Tape","Gate","Crush"};
 static int match_enum(const char *value, const char **opts, int count){for(int i=0;i<count;i++)if(strcmp(value,opts[i])==0)return i;return -1;}
@@ -2245,7 +2257,7 @@ static void set_param(void *inst, const char *key, const char *val) {
     SETFR("inLow",inLow,-1.0,1.0) SETFR("inMid",inMid,-1.0,1.0) SETFR("inMidFreq",inMidFreq,0.0,1.0)
     SETFR("inHigh",inHigh,-1.0,1.0) SETFR("inHighFreq",inHighFreq,0.0,1.0)
     SETFR("tapeNoise",tapeNoise,0.0,1.0) SETFR("tapeDrive",tapeDrive,0.0,1.0) SETFR("tapeHF",tapeHF,0.0,1.0)
-    if(strcmp(key,"midiIn")==0){ s->midiIn=(strcmp(val,"On")==0||atof(val)>0.5)?1:0; return; }
+    if(strcmp(key,"midiIn")==0){ int i=match_enum(val,midiin_opts,3); if(i<0)i=(strcmp(val,"On")==0)?1:(int)lb_clampf((float)atof(val),0,2); s->midiIn=i; return; }
     if(strcmp(key,"midiOut")==0){ s->midiOut=(strcmp(val,"On")==0||atof(val)>0.5)?1:0; return; }
     SETFR("armThresh",armThresh,0.0,1.0)
     if(strcmp(key,"tapeHold")==0){ int h=atoi(val); s->tapeHold=(h<0)?-1:(h>0)?1:0; return; }
@@ -2534,7 +2546,7 @@ static int get_param(void *inst, const char *key, char *buf, int buf_len) {
     GETP("stability",stability) GETP("globalWowFlut",globalWowFlut) GETP("inputMonitor",inputMonitor) GETP("inputGain",inputGain)
     GETP("inLow",inLow) GETP("inMid",inMid) GETP("inMidFreq",inMidFreq) GETP("inHigh",inHigh) GETP("inHighFreq",inHighFreq)
     GETP("tapeNoise",tapeNoise) GETP("tapeDrive",tapeDrive) GETP("tapeHF",tapeHF)
-    if(strcmp(key,"midiIn")==0)return snprintf(buf,buf_len,"%s",s->midiIn?"On":"Off");
+    if(strcmp(key,"midiIn")==0){ int i=s->midiIn; if(i<0||i>2)i=0; return snprintf(buf,buf_len,"%s",midiin_opts[i]); }
     if(strcmp(key,"midiOut")==0)return snprintf(buf,buf_len,"%s",s->midiOut?"On":"Off");
     GETP("armThresh",armThresh)
     GETP("tapeLoCut",tapeLoCut) GETP("tapeWow",tapeWow) GETP("tapeFlut",tapeFlut) GETP("tapeGen",tapeGen)

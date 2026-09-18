@@ -26,4 +26,5 @@ ssh "$MOVE_HOST" "set -e
 echo
 echo "Done. On the Move: rescan modules (or Schwung Manager), then open LPX Shell"
 echo "from the Overtake/Tools list. If it was already loaded, FULL-EXIT first"
-echo "(Shift+Back) so suspend_keeps_js doesn't resume the old code."
+echo "(Shift + Volume + Jog-click; a plain Back only suspends) so suspend_keeps_js"
+echo "doesn't resume the old code."

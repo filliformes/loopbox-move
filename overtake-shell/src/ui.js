@@ -73,6 +73,7 @@ let loopPage = 0;           /* 0/1/2 = loop pages 1/2/3 (Up/Down/Left/Right arro
 let dirty = false;          /* screen repaint hint (declared explicitly; strict-mode safe) */
 let lastCleared = -1;       /* last track cleared, for Undo (MoveUndo) */
 const mutes = new Array(NV).fill(false);
+let midiMode = 0;   /* external-MIDI mode mirror: 0 Off · 1 Keys (DSP poly) · 2 Ctrl (LCXL here) */
 const mutePressed = new Array(NV).fill(false);   /* pad press was a Mute+tap — its release must not clear */
 let tickCount = 0;
 const lastTapMs = new Array(NV).fill(0);
@@ -176,7 +177,7 @@ const MENU_DEFS = [
       { k:'loopFiltMode', opts:['Clean','SEM','MS-20','Steiner','Ladder4','Ladder2','Ladder1','Prophet','Oberheim','Diode','K35','Vintage'], lbl:'LpFlt' },
       { k:'rootNote', lo:24, hi:96, lbl:'Root', int:true }, { k:'inputMonitor', lo:0, hi:1, lbl:'InMon' },
       { k:'inSource', opts:['Line','Master','S1','S2','S3','S4','M1','M2','M3','M4'], lbl:'InSrc' },
-      { k:'midiIn', opts:['Off','On'], lbl:'MIDI' },  { k:'midiOut', opts:['Off','On'], lbl:'MidiO' },
+      { k:'midiIn', opts:['Off','Keys','Ctrl'], lbl:'MIDI' },  { k:'midiOut', opts:['Off','On'], lbl:'MidiO' },
       { k:'masterVol', lo:0, hi:1.5, lbl:'Out' },     { k:'masterLoCut', lo:20, hi:1000, lbl:'LoCut', int:true, step:5 },
       { k:'masterHiCut', lo:1000, hi:20000, lbl:'HiCut', int:true, step:100 }, { k:'punchWidth', lo:0, hi:1, lbl:'PWide' },
       { k:'masterEQ', opts:MEQ_NAMES, lbl:'Char' },   { k:'globalSat', lo:0, hi:2, lbl:'gSat' },
@@ -555,6 +556,8 @@ function pollStates() {
         const m = mu.charCodeAt(i) === 49;
         if (m !== mutes[i]) { mutes[i] = m; enqLED(LEFT_NOTES[i], padColor(i)); }
     }
+    const mm = gp('midiIn');   /* cache the external-MIDI mode so onMidiMessageExternal can gate cheaply */
+    if (mm) midiMode = (mm === 'Ctrl') ? 2 : (mm === 'Keys') ? 1 : 0;
 }
 
 /* ---- screen ---- */
@@ -1582,6 +1585,7 @@ function nextTap(st) {
  * Both ranges are handled at once, so it works whichever template is loaded. */
 globalThis.onMidiMessageExternal = function (data) {
     if (!data || data.length < 3) return;
+    if (midiMode !== 2) return;   /* LCXL transport/CC only in Ctrl mode; Keys routes notes to the DSP poly */
     let st, d1, d2;
     if ((data[0] & 0x80) === 0 && data.length >= 4) { st = data[1] & 0xF0; d1 = data[2]; d2 = data[3]; }  /* 4-byte USB-framed */
     else { st = data[0] & 0xF0; d1 = data[1]; d2 = data[2]; }
