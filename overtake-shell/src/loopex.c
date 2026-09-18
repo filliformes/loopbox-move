@@ -942,24 +942,39 @@ static inline void punch_slot_process(loopex_t *s, PunchSlot *ps, int n, double 
             if(ps->gPrime){ ps->gPrime=0; int gi=punch_grain(ps,pos-ivl*0.8*rate,ivl*1.6,rate,pan); if(gi>=0)ps->gAge[gi]=ivl*0.8; } }
         double sl,sr; punch_grains_out(ps,&sl,&sr);
         if(toneOn){ sl=bq_L(&ps->toneFilt,sl); sr=bq_R(&ps->toneFilt,sr); } *outL=sl; *outR=sr; return; }
-    if(d->mech==PM_STRETCH){   /* 2-grain OLA stretch/freeze: P0=stretch(1=freeze) P1=Pitch P2=Grain; pressure = toward freeze */
-        double dur=(0.04+(double)P[2]*0.3)*SR, pr=pm, srate=(1.0-(double)P[0])*(1.0-press);
+    if(d->mech==PM_STRETCH){   /* Freeze/Stretch as a lush multi-grain wash: FOUR grains, each with a
+                                * randomised length and (as the hold approaches freeze) a read position that
+                                * wanders backward through the held 2 s ring, given its own stereo place and a
+                                * small L/R micro-offset. Summed as a weighted average (floored) so the level
+                                * stays flat and never rings or clicks, and the random lengths keep the four
+                                * respawns from ever sharing a period -> a non-periodic hall-of-mirrors hold.
+                                * P0 = stretch (1 = freeze) · P1 = Pitch · P2 = Grain size; pressure -> freeze */
+        double dur=(0.09+(double)P[2]*0.5)*SR, pr=pm;                 /* 90..590 ms: longer, smoother windows */
+        double srate=(1.0-(double)P[0])*(1.0-press);
         ps->stGrid+=srate;
-        { double ahead=fmod((double)ps->w-ps->stGrid,(double)PUNCH_BUF); if(ahead<0)ahead+=PUNCH_BUF;   /* keep the grain span behind the head */
+        { double ahead=fmod((double)ps->w-ps->stGrid,(double)PUNCH_BUF); if(ahead<0)ahead+=PUNCH_BUF;   /* keep the read span behind the head */
           double need=dur*(pr>1.0?pr:1.0)+256.0; if(ahead<need) ps->stGrid=(double)ps->w-need; }
-        /* Two Hann grains at 50% overlap sum to exactly 1, so no normaliser: the old
-         * 1/wsum boosted a lone grain edge ~90x (a click), and grain 2 used to rest
-         * for half a window after every pass, leaving grain 1 alone half the time. */
-        for(int i=0;i<2;i++){ if(!ps->gAct[i]||ps->gAge[i]>=ps->gDur[i]){ ps->gAct[i]=1; ps->gDur[i]=dur;
-            ps->gRate[i]=pr;   /* latched: a Pitch turn takes effect at the next grain, never mid-read */
-            if(i==1&&ps->gPrime){ ps->gAge[i]=dur*0.5; ps->gPos[i]=ps->stGrid-dur*0.5*pr; }   /* engage: already mid-window */
-            else { ps->gAge[i]=0.0; ps->gPos[i]=ps->stGrid; } } }
+        double frz=1.0-srate; if(frz<0.0)frz=0.0;                    /* 0 moving -> 1 frozen: more wander + wider spread when held */
+        for(int i=0;i<4;i++){ if(!ps->gAct[i]||ps->gAge[i]>=ps->gDur[i]){   /* (re)spawn grain i */
+            ps->gAct[i]=1;
+            ps->gDur[i]=dur*(0.75+0.5*PRND(ps->gRng));               /* random length: respawns never share a period */
+            ps->gRate[i]=pr;                                          /* latched: Pitch takes effect at the next grain */
+            ps->gPos[i]=ps->stGrid-PRND(ps->gRng)*frz*dur*2.0;        /* wander backward into the frozen buffer */
+            double pan=(PRND(ps->gRng)*2.0-1.0)*(0.35+0.5*frz);       /* stereo place, wider toward freeze */
+            ps->gGl[i]=cos((pan+1.0)*0.25*M_PI); ps->gGr[i]=sin((pan+1.0)*0.25*M_PI);
+            ps->gAge[i]=ps->gPrime?((double)i*0.25*ps->gDur[i]):0.0;  /* engage: spread the four across the window so they overlap at once */
+        } }
         ps->gPrime=0;
-        double sl=0.0,sr=0.0;
-        for(int i=0;i<2;i++){ double a=ps->gAge[i]; double wph=a/ps->gDur[i]; if(wph>=1.0){ps->gAct[i]=0;continue;}
+        double numL=0.0,numR=0.0,wsum=0.5;                            /* wsum floor guards the divide (staggered grains keep it ~2) */
+        for(int i=0;i<4;i++){ double a=ps->gAge[i]; double wph=a/ps->gDur[i]; if(wph>=1.0){ps->gAct[i]=0;continue;}
             double win=0.5-0.5*cos(TWOPI*wph), rp=ps->gPos[i]+a*ps->gRate[i];
-            sl+=(double)ring_read(ps->ringL,rp)*win; sr+=(double)ring_read(ps->ringR,rp)*win; ps->gAge[i]+=1.0; }
-        punch_doubler(ps,&sl,&sr);   /* stereo width */
+            double roff=(double)(97+i*211);                          /* per-grain L/R micro-offset -> decorrelated stereo */
+            numL+=(double)ring_read(ps->ringL,rp)*win*(double)ps->gGl[i];
+            numR+=(double)ring_read(ps->ringR,rp+roff)*win*(double)ps->gGr[i];
+            wsum+=win; ps->gAge[i]+=1.0; }
+        double norm=1.6/wsum;                                         /* weighted average = flat level; 1.6 makeup for the constant-power spread */
+        double sl=numL*norm, sr=numR*norm;
+        punch_doubler(ps,&sl,&sr);   /* extra stereo width */
         *outL=sl; *outR=sr; return; }
     if(d->mech==PM_SHIMMER){   /* octave-up shifter in band-limited feedback: P0=Regen P1=Pitch (0.5 = +1 oct) P2=Tone; pressure = regen */
         double ratio=pow(2.0,(double)P[1]*2.0), regen=(double)P[0]*0.85+press*0.3; if(regen>0.95)regen=0.95;

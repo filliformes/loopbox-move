@@ -125,8 +125,8 @@ punchVals[6]  = [0.5, 0.5, 0.5, 1.0];   /* Smear:  long grains, mid density */
 punchVals[7]  = [0.6, 0.75, 1.0, 1.0];  /* Strum:  brisk, upward, open tone */
 punchVals[10] = [0.5, 0.25, 1.0, 1.0];  /* Glide:  1/4 beat, gliding down */
 punchVals[11] = [0.5, 0.5, 0.5, 1.0];   /* Shimmer: regen, +1 octave, mid tone */
-punchVals[12] = [0.5, 0.5, 0.3, 1.0];   /* Stretch: mid stretch, small grain */
-punchVals[13] = [1.0, 0.5, 0.3, 1.0];   /* Freeze:  full freeze */
+punchVals[12] = [0.5, 0.5, 0.0, 1.0];   /* Stretch: mid stretch, tight grain (0 = default: bigger grain -> granular) */
+punchVals[13] = [1.0, 0.5, 0.0, 1.0];   /* Freeze:  full freeze, tight grain (0 keeps it a true freeze) */
 punchVals[3]  = [0.5, 0.0625, 1.0, 1.0]; /* Chop:   1/4 grid, pattern 1 */
 punchVals[15] = [1.0, 0.5, 0.5, 0.0];   /* PalFX:  Veil reverb, half amount */
 punchVals[3][0] = 0.7;                                 /* Chop: brisker default rate */
