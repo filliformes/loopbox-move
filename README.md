@@ -293,6 +293,9 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 - **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
 - **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
 - **Structor** — several punch-effect ideas. https://github.com/filliformes/structor-move
+- **Fizzik** — multiple filters implementations. https://github.com/filliformes/fizzik-move
+
+### Other software instruments (same author)
 - **Res** and **Essaim** — the Quartz and Prism reverbs: one dual-mode 8-line Hadamard FDN whose
   two feedback colourings fill the roles of Ableton's `abl.dsp.quartz~` and `abl.dsp.prism~` Max
   objects. https://github.com/filliformes/res · https://github.com/filliformes/essaim
@@ -303,6 +306,7 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 ### Other Schwung modules
 - **Smack** — Tim Cox. The Seed slice re-order is modelled on its Seed parameter.
   https://github.com/timncox/schwung-smack
+- **Forgetful** — Idlir Fida. The Stumble perform gesture. https://github.com/kliegsablaze/forgetful
 
 ### Design inspiration
 - **Polyend MESS** — the FX sequencer: per-step locks, play chance, extensions, gate and swing.
@@ -317,7 +321,6 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
   endlessly into an ever-evolving ambient layer. https://somasynths.com/cosmos/
 - **norns loopers** — wrms, concrète, cranes, oooooo, otis, reels, ndls, samsara, mlre, nydl,
   giro: multiple playheads, threshold arm, loop multiples, jog scrub. https://norns.community
-- **Forgetful** — the Stumble perform gesture. https://github.com/charlesvestal/schwung (module catalog)
 
 ## License
 
