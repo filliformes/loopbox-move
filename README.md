@@ -4,8 +4,8 @@
 
 Loopex turns the Move into an asynchronous, tape-flavoured looping instrument: sixteen
 stereo loops on the left pads — each with **up to four independent playheads** — a bank of
-momentary/latchable glitch FX on the right pads, two send buses drawing on a 25-effect
-Palette engine plus a Dattorro plate, a full record-path tape machine, session save/load,
+momentary/latchable glitch FX on the right pads, two send buses drawing on a 24-effect
+Palette engine plus four reverbs, a full record-path tape machine, session save/load,
 and a MIDI-keyboard polyphony layer.
 
 > Inspired by the 1010music BlackBox looper workflow, and by the sound of Kinotone Ribbons,
@@ -13,7 +13,7 @@ and a MIDI-keyboard polyphony layer.
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
 - **Module:** `loopex` · **Name:** Loopex · **Abbrev:** LPX · **Type:** Overtake (Schwung) · **API v2**
-- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.3 · **Manual:** [online](https://filliformes.github.io/loopex-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
+- **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.6 · **Manual:** [online](https://filliformes.github.io/loopex-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
 
 ---
 
@@ -292,6 +292,13 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 - **Palette** — the 24-effect send engine Loopex embeds. https://github.com/filliformes/palette-move
 - **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
 - **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
+- **Punchfx** — the right-pad **Punch-in FX** bank: sixteen PO-33-style, pressure-sensitive
+  momentary effects. Loopex's punch engine descends directly from it. https://github.com/filliformes/punchfx-move
+- **Fizzik** — the **12 loop/master filter voicings** (Clean · SEM · MS-20 · Steiner · three
+  ladders · Prophet · Oberheim · Diode · K35 · Vintage): original analog-voiced designs built on
+  a trapezoidal SVF + zero-delay-feedback transistor ladder (Zavalishin/Cytomic VA-filter math,
+  RBJ cookbook); the MS-20 voicing was modelled from original Korg MS-20 schematics while working
+  on Aphex. https://github.com/filliformes/fizzik-move
 - **Structor** — several punch-effect ideas. https://github.com/filliformes/structor-move
 - **Fizzik** — multiple filters implementations. https://github.com/filliformes/fizzik-move
 
@@ -304,6 +311,9 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
   https://github.com/filliformes/Phasma
 
 ### Other Schwung modules
+- **Performance FX** — Charles Vestal. The framework author's pressure punch-in FX module,
+  the pattern the Punch-in bank grows from (Loopex carries 16 on the right pads).
+  https://github.com/charlesvestal/schwung-performance-fx
 - **Smack** — Tim Cox. The Seed slice re-order is modelled on its Seed parameter.
   https://github.com/timncox/schwung-smack
 - **Forgetful** — Idlir Fida. The Stumble perform gesture. https://github.com/kliegsablaze/forgetful
@@ -317,6 +327,7 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 - **Chase Bliss Blooper, Mood MK2, Generation Loss MK2** — Stability, the old Clock's
   degradation, Disintegration overdub, Generations. https://www.chasebliss.com
 - **Hologram Microcosm** — the grain and glide punch families. https://hologramelectronics.com/microcosm
+- **Studer 962** — the per-loop channel EQ, voiced from the broadcast console's schematic band specs.
 - **Soma Laboratory COSMOS** — the Drift memory: prime-length shifting delay lines that recombine
   endlessly into an ever-evolving ambient layer. https://somasynths.com/cosmos/
 - **norns loopers** — wrms, concrète, cranes, oooooo, otis, reels, ndls, samsara, mlre, nydl,
