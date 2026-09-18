@@ -225,7 +225,7 @@ typedef struct {
     float filterSm; double volSm, panSm;  /* 10ms smoothing on the steppy knobs */
     int savedLoopLen;                     /* clear-undo: last loop length before a clear */
     float djReso;                         /* DJ filter resonance (Q) */
-    float djWet;                          /* DJ filter dry->filtered blend: 0 at centre so LP<->HP is seamless */
+    float djWet, djWetTgt;                /* DJ filter dry->filtered blend + its target; the swap waits for djWet~0 */
     float comp, clock;                    /* per-track compressor amount; clock = independent PITCH shift in octaves (-2..2), not the playback rate */
     void *ps; float psInL[128], psInR[128], psOutL[128], psOutR[128];   /* Signalsmith Stretch (pitch_shift.cc), one block late */
     int psActive, psWarm, psLat, psNudge; double psMix; float psCache;            /* engage state: warm-up count, latency, dry/wet ramp */
@@ -568,20 +568,26 @@ static void *session_worker(void *arg){
 static inline float mf_run(float *st, float x, float g, float reso, int voicing);
 static void dj_filter_update(Voice *v) {
     double f=(double)v->filterSm;
-    /* LP left of centre, HP right; both fade to fully dry at noon so the LP<->HP swap
-     * happens while the filter contributes nothing -> no click. Centre band = +/-0.08. */
-    int newMode = (f <= 0.5) ? -1 : 1;
-    if(newMode!=v->djMode){   /* switching sides at noon, where the wet blend is ~0, so a reset here is inaudible */
-        if(newMode<0){ bq_reset(&v->djLpA); v->lfModeCache=-99; for(int i=0;i<6;i++){ v->lfStL[i]=0.0f; v->lfStR[i]=0.0f; } }
-        else bq_reset(&v->djHpA);
-        v->djMode=newMode;
+    /* LP left of centre, HP right; the filter blends to fully dry at noon. The engine swap
+     * is DEFERRED until the wet blend (djWet, smoothed per-sample) has faded to ~0, so a fast
+     * sweep can never reset an audibly-wet filter -> no pop at any speed. Centre band +/-0.08. */
+    int want = (f <= 0.5) ? -1 : 1;
+    if(want != v->djMode){
+        v->djWetTgt = 0.0f;                        /* fade the current engine out to dry first */
+        if(v->djWet < 0.02f){                       /* faded out -> now the swap+reset is inaudible */
+            if(want<0){ bq_reset(&v->djLpA); v->lfModeCache=-99; for(int i=0;i<6;i++){ v->lfStL[i]=0.0f; v->lfStR[i]=0.0f; } }
+            else bq_reset(&v->djHpA);
+            v->djMode=want;
+        }
+    } else {
+        double d=fabs(f-0.5); v->djWetTgt=(float)(d>=0.08?1.0:d/0.08);   /* dry at centre -> filtered by +/-0.08 */
     }
     double Q=0.70710678+(double)v->djReso*5.3;   /* resonance: Butterworth -> ~6 */
-    if(newMode<0){ double lpF=200.0*pow(18000.0/200.0, f/0.5); if(lpF>18000.0)lpF=18000.0; bq_set_lp(&v->djLpA,lpF,Q); v->lfG=tanf((float)(M_PI*lpF/SR)); }
-    else { double t=(f-0.5)/0.5; double hpF=20.0*pow(2000.0/20.0, t); if(hpF>2000.0)hpF=2000.0; bq_set_hp(&v->djHpA,hpF,Q); }
-    double d=fabs(f-0.5); v->djWet=(float)(d>=0.08?1.0:d/0.08);   /* 0 dry at centre -> 1 filtered by +/-0.08 */
+    if(v->djMode<0){ double lpF=200.0*pow(18000.0/200.0, f/0.5); if(lpF>18000.0)lpF=18000.0; if(lpF<20.0)lpF=20.0; bq_set_lp(&v->djLpA,lpF,Q); v->lfG=tanf((float)(M_PI*lpF/SR)); }
+    else { double t=(f-0.5)/0.5; if(t<0.0)t=0.0; double hpF=20.0*pow(2000.0/20.0, t); if(hpF>2000.0)hpF=2000.0; bq_set_hp(&v->djHpA,hpF,Q); }
 }
 static inline void dj_filter_stereo(Voice *v, int voicing, double *l, double *r) {
+    v->djWet += (v->djWetTgt - v->djWet)*0.006f;   /* ~4 ms per-sample fade: smooth + always reaches ~0 for the swap */
     double dl=*l, dr=*r, fl, fr;
     if(v->djMode<0){                       /* low-pass side runs the chosen analog voicing */
         if(voicing<0)voicing=0; if(voicing>=MF_NVOICE)voicing=MF_NVOICE-1;
@@ -590,7 +596,7 @@ static inline void dj_filter_stereo(Voice *v, int voicing, double *l, double *r)
         fr=(double)mf_run(v->lfStR,(float)dr,v->lfG,v->djReso,voicing);
     }
     else { fl=bq_L(&v->djHpA,dl); fr=bq_R(&v->djHpA,dr); }
-    double w=(double)v->djWet;              /* blend dry->filtered; w=0 at noon makes the LP/HP swap seamless */
+    double w=(double)v->djWet;              /* blend dry->filtered; the deferred swap keeps it seamless at any speed */
     *l=dl+(fl-dl)*w; *r=dr+(fr-dr)*w;
 }
 
@@ -1309,7 +1315,7 @@ static void *create_instance(const char *module_dir, const char *json_defaults) 
         v->saturation=0.0f;v->wowFlutter=0.0f;v->send=0.0f;v->glitch=0.0f;
         v->tiltEQ=0.0f;v->decay=1.0f;v->eqBass=0.0f;v->eqPresFreq=0.5f;v->eqPresAmt=0.0f;v->eqTreble=0.0f;
         v->flutNextMax=0.5;v->rng=12345+i*7919;v->glLastSlice=-1;
-        v->djReso=0.0f;v->djWet=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;v->lfModeCache=-99;v->lfG=0.5f;
+        v->djReso=0.0f;v->djWet=0.0f;v->djWetTgt=0.0f;v->ampAtk=0.0f;v->ampRel=0.0f;v->ampAtkCache=-1.0f;v->ampRelCache=-1.0f;v->lfModeCache=-99;v->lfG=0.5f;
         v->comp=0.0f;v->clock=0.0f;v->psCache=-99.0f;v->psActive=0;v->psMix=0.0;v->psNudge=0;
         v->ps=ps_create(44100.0f,128,(i*512)/NUM_VOICES);   /* staggered so the 16 STFTs do not land in one callback */
         v->filterSm=0.5f;v->volSm=(double)v->volume;v->panSm=0.0;
@@ -1915,7 +1921,8 @@ static void render_block(void *inst, int16_t *out_interleaved_lr, int frames) {
     int selIdx=s->selTrack-1;
     for(int vi=0;vi<NUM_VOICES;vi++){ Voice *fv=&s->voice[vi];
         fv->filterSm+=(fv->filter-fv->filterSm)*0.25f;      /* ~10ms at 2.9ms/block */
-        if(fabsf(fv->filter-fv->filterSm)>0.0002f) dj_filter_update(fv); }
+        int wantSide=(fv->filterSm<=0.5f)?-1:1;
+        if(fabsf(fv->filter-fv->filterSm)>0.0002f || wantSide!=fv->djMode || fabsf(fv->djWet-fv->djWetTgt)>0.001f) dj_filter_update(fv); }   /* keep updating while a deferred LP<->HP swap or fade is still settling */
     if(selIdx>=0&&selIdx<NUM_VOICES){Voice *sv=&s->voice[selIdx];dj_filter_update(sv);studer_eq_update(sv);tilt_eq_update(sv);}
     if(s->masterLoCut>21.0f)bq_set_hp(&s->masterLo,(double)s->masterLoCut,0.707);
     if(s->masterHiCut<19999.0f)bq_set_lp(&s->masterHi,(double)s->masterHiCut,0.707);
