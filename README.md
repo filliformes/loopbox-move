@@ -300,7 +300,6 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
   RBJ cookbook); the MS-20 voicing was modelled from original Korg MS-20 schematics while working
   on Aphex. https://github.com/filliformes/fizzik-move
 - **Structor** — several punch-effect ideas. https://github.com/filliformes/structor-move
-- **Fizzik** — multiple filters implementations. https://github.com/filliformes/fizzik-move
 
 ### Other software instruments (same author)
 - **Res** and **Essaim** — the Quartz and Prism reverbs: one dual-mode 8-line Hadamard FDN whose
