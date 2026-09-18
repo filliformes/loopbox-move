@@ -12,16 +12,8 @@ and a MIDI-keyboard polyphony layer.
 > Chase Bliss Blooper / Mood MK2, and Microcosm-style glitch. Interaction ideas borrowed
 > from the norns looper world (*wrms*, *cranes*, *oooooo*, *samsara*, *nydl*, *otis*).
 
-- **Module:** `loopex` · **Name:** Loopex · **Abbrev:** LPX · **Type:** Overtake (Schwung) · **API v2**
+- **Module:** `loopex` · **Name:** Loopex · **Type:** Overtake (Schwung) · **API v2**
 - **Format:** 44100 Hz, 128-frame blocks, stereo · **Version:** 0.8.6 · **Manual:** [online](https://filliformes.github.io/loopex-move/) · [markdown](docs/MANUAL.md) · **License:** GPL-3.0
-
----
-
-## Requirements
-
-- An **Ableton Move** running **Schwung** with Overtake module support.
-- A host with **Docker** (cross-compiles the ARM64 `dsp.so`) and **ssh/scp** for deploying.
-- The Move reachable over USB-C at `move.local` (or `172.16.254.1`).
 
 ---
 
@@ -229,13 +221,18 @@ Master:      sum of voices + MIDI-poly -> input monitor -> + Palette send return
 
 ## Build and install
 
+Loopex is on the **Schwung Module Store** — most people can install it from the Schwung
+Manager (search *Loopex*), no build needed. To build from source you need a host with
+**Docker** (cross-compiles the ARM64 `dsp.so`) and **ssh/scp**, and an **Ableton Move**
+running **Schwung** reachable over USB-C at `move.local` (or `172.16.254.1`):
+
 ```bash
 cd overtake-shell
 ./scripts/build.sh      # Docker cross-compiles dsp.so (aarch64) + validates ui.js
 ./scripts/install.sh    # scp + atomic-rename install to move.local
 ```
 
-Then on the Move: rescan modules and open **LPX / Loopex** from the Overtake list.
+Then on the Move: rescan modules and open **Loopex** from the Overtake list.
 **If it was already loaded, full-exit first** (Shift + Volume + Jog-click) — `suspend_keeps_js`
 otherwise resumes the old code.
 
