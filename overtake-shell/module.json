@@ -2,7 +2,7 @@
   "id": "loopex",
   "name": "Loopex",
   "abbrev": "LPX",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "author": "Filliformes",
   "dsp": "dsp.so",
   "ui": "ui.js",
