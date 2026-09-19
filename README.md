@@ -75,7 +75,7 @@ The last four are proper reverbs, and the last three come from the standalone in
 
 ### Punch-in FX (right 16 pads)
 Sixteen momentary effects over a 2-second capture ring, in four families —
-**Loops** (1/12 · 1/16 · short · **Chop**, with eight rhythmic patterns from Signal),
+**Loops** (1/12 · 1/16 · short · **Chop**, with 32 rhythmic patterns drawn from Signal),
 **Grains** (Haze · Mosaic · Smear · Strum), **Pitch** (Oct− · Oct+ · Glide · Shimmer) and
 **Time** (Stretch · Freeze · Reverse · **PalFX**, one Palette effect as a punch: FX / Amount /
 Macro / Drift, default Space) — **up to 5 stacked in series**. Slice effects auto-pan in
@@ -305,7 +305,7 @@ license (see `overtake-shell/vendor/` and the file headers); the rest is inspira
 ### Sibling Move modules (same author)
 - **Palette** — the 24-effect send engine Loopex embeds. https://github.com/filliformes/palette-move
 - **Magnéto** — the tape-input stage, sessions, scrub and Tape page patterns. https://github.com/filliformes/magneto-move
-- **Signal** — the eight Chop rhythm patterns. https://github.com/filliformes/signal-move
+- **Signal** — the Chop rhythm patterns. https://github.com/filliformes/signal-move
 - **Punchfx** — the right-pad **Punch-in FX** bank: sixteen PO-33-style, pressure-sensitive
   momentary effects. Loopex's punch engine descends directly from it. https://github.com/filliformes/punchfx-move
 - **Fizzik** — the **12 loop/master filter voicings** (Clean · SEM · MS-20 · Steiner · three

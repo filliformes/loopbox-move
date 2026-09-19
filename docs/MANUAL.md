@@ -105,7 +105,7 @@ Sixteen momentary effects on the master, reading a 2-second capture ring. Hold a
 | **Pitch** | Oct− · Oct+ · Glide · Shimmer | Fine/Len/Regen · Pitch/Glide · Tone · Mix | mix · mix · glide · regen |
 | **Time** | Stretch · Freeze · Reverse · **PalFX** | Stretch/Frz/Len · Pitch · Grain/Tone · Mix (PalFX: **FX · Amount · Macro · Drift**) | freeze · freeze · shorter · amount |
 
-- **Chop** repeats the last transient on one of eight rhythmic patterns (Morse bursts, Ikeda burst/silence, pairs, straight eighths, syncopated) chosen with knob 6.
+- **Chop** repeats the last transient on one of 32 rhythmic patterns (Morse bursts, Ikeda burst/silence, pairs, straight eighths, syncopated) chosen with knob 6.
 - **PalFX** runs one Palette effect (all 26, default Space) as a punch. It is block-processed, so its wet is one block late, like the send buses.
 - Slice effects auto-pan in time with their rate. Every slot loudness-matches its wet to the dry it replaces. Loops, Reverse, Glide, Chop and a frozen Stretch freeze their capture ring while held, so a loop held longer than two seconds is never overwritten under the head.
 
